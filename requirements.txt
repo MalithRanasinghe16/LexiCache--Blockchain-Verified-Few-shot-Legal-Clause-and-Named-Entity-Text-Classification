@@ -1,0 +1,30 @@
+# Core Dependencies
+streamlit==1.29.0
+fastapi==0.108.0
+uvicorn==0.25.0
+
+# Machine Learning
+torch==2.1.2
+transformers==4.36.2
+datasets==2.16.1
+
+# Natural Language Processing
+nltk==3.8.1
+spacy==3.7.2
+
+# PDF Processing
+PyPDF2==3.0.1
+
+# Blockchain
+web3==6.13.0
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+numpy==1.26.3
+pandas==2.1.4
+
+# Development Tools
+pytest==7.4.3
+black==23.12.1
+flake8==7.0.0
