@@ -16,6 +16,31 @@ from torch.utils.data import DataLoader
 import numpy as np
 from tqdm import tqdm
 from sklearn.metrics import f1_score
+from transformers import AutoModel, AutoTokenizer
+import torch.nn as nn
+from typing import List
+
+class PrototypicalNetwork(nn.Module):
+    def __init__(self, encoder_name: str = "nlpaueb/legal-bert-base-uncased"):
+        super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+        self.encoder = AutoModel.from_pretrained(encoder_name).to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(encoder_name)
+        self.hidden_size = self.encoder.config.hidden_size
+
+    def forward(self, texts: List[str], batch_size: int = 32):
+        """Encode texts in batches for efficiency."""
+        embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            inputs = self.tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = self.encoder(**inputs)
+            batch_emb = outputs.last_hidden_state.mean(dim=1)  # mean pooling
+            embeddings.append(batch_emb.cpu())  # move back to cpu to save VRAM
+        return torch.cat(embeddings, dim=0)
 
 def run_few_shot_ledgar(n_way=5, k_shot=5, n_episodes=500):
     print(f"Running {n_episodes} episodes: {n_way}-way {k_shot}-shot on LEDGAR")
