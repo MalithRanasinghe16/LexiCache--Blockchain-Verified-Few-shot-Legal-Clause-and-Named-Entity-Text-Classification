@@ -2,137 +2,60 @@
 import streamlit as st
 import torch
 import numpy as np
+import fitz  # PyMuPDF – pip install pymupdf
+import re
 from transformers import AutoTokenizer, AutoModel
 from datasets import load_dataset
+from typing import List, Tuple
 
-st.set_page_config(page_title="LexiCache - Live Demo", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="LexiCache - Clause Highlight Demo", page_icon="⚖️", layout="wide")
 
 st.markdown("""
-# LexiCache – Live Few-Shot Legal Clause Classifier  
-**Blockchain Verified Few-shot Legal Clause & Named Entity Text Classification**  
-**Student:** T.M.M.S. Ranasinghe | **Supervisor:** Mr. Jihan Jeeth  
-Informatics Institute of Technology (IIT) × University of Westminster | February 2026  
+# LexiCache – Clause Highlighting Prototype  
+**Blockchain Verified Few-shot Legal Clause Classification**
 
-**Model:** Meta-trained projection head on Legal-BERT  
-**Performance:** **89.87% macro F1** (5-way 5-shot on LEDGAR)  
-""", unsafe_allow_html=True)
+**Student:** T.M.M.S. Ranasinghe | **Supervisor:** Mr. Jihan Jeeth  
+IIT × University of Westminster | February 2026  
 
-st.success("Model loaded – ready for real-time classification")
+**Model:** Meta-trained Legal-BERT | **Performance:** 89.87% macro F1 (5-way 5-shot on LEDGAR)
+""")
 
-# ─── LEDGAR label name mapping (common/frequent categories) ──────────────────
-LEDGAR_LABEL_NAMES = {
-    0: "Acceleration",
-    1: "Anti-Assignment",
-    2: "Applicable Law",
-    3: "Arbitration",
-    4: "Assignment",
-    5: "Audit Rights",
-    6: "Cap on Liability",
-    7: "Change of Control",
+st.info("Upload a PDF → see clauses automatically detected & highlighted by type.")
+
+# ─── Full LEDGAR Label Names + Colors ───────────────────────────────────────
+LEDGAR_LABEL_NAMES = {  # abbreviated – add more if needed
+    2: "Applicable Law / Governing Law",
     8: "Confidentiality",
-    9: "Covenant Not to Sue",
-    10: "Exclusive Remedy",
-    11: "Exclusivity",
-    12: "Force Majeure",
     13: "Governing Law",
     14: "Indemnification",
-    15: "Insurance",
-    16: "Intellectual Property",
     17: "Limitation of Liability",
-    18: "Liquidated Damages",
-    19: "Material Breach",
-    20: "Non-Compete",
-    21: "Non-Disparagement",
-    22: "Non-Solicitation",
-    23: "Notice",
     24: "Payment Terms",
-    25: "Price Adjustment",
-    26: "Renewal Term",
-    27: "Severability",
-    28: "Survival",
-    29: "Termination for Convenience",
-    30: "Third Party Beneficiary",
-    31: "Warranty",
-    32: "No Waiver",
-    33: "Counterparts",
-    34: "Entire Agreement",
-    35: "Further Assurances",
-    36: "Headings",
-    37: "Interpretation",
-    38: "No Third Party Beneficiaries",
-    39: "Publicity",
-    40: "Successors and Assigns",
-    41: "Counterparts; Facsimile Signatures",
-    42: "Definitions",
-    43: "Expenses",
-    44: "No Oral Modification",
-    45: "Representations and Warranties",
-    46: "Jurisdiction / Venue",
-    47: "Binding Effect",
-    48: "Amendments",
-    49: "Counterparts; Electronic Signatures",
-    50: "No Partnership",
-    51: "Severability; Reformation",
-    52: "Counterparts; Facsimile or Electronic Signatures",
-    53: "No Third-Party Beneficiaries",
-    54: "Counterparts; Electronic or Facsimile Signatures",
-    55: "No Joint Venture",
-    56: "Counterparts; Facsimile Signatures; Electronic Signatures",
-    57: "No Agency",
-    58: "Counterparts; Facsimile and Electronic Signatures",
-    59: "No Partnership or Joint Venture",
-    60: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    61: "Counterparts; Facsimile, PDF or Electronic Signature",
-    62: "No Agency or Partnership",
-    63: "Counterparts; Facsimile or PDF Signatures",
-    64: "Counterparts; Facsimile, PDF or Electronic Signature",
-    65: "Counterparts; Facsimile or Electronic Signature",
-    66: "Counterparts; Facsimile, PDF or Electronic Signature",
-    67: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    68: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    69: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    70: "Counterparts; Facsimile or Electronic Signatures",
-    71: "Counterparts; Facsimile and Electronic Signatures",
-    72: "Counterparts; Facsimile, PDF and Electronic Signatures",
-    73: "Counterparts; Facsimile, PDF, Electronic Signatures",
-    74: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    75: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    76: "Counterparts; Facsimile or PDF Signatures",
-    77: "Counterparts; Facsimile, PDF or Electronic Signature",
-    78: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    79: "Counterparts; Facsimile or Electronic Signature",
-    80: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    81: "Counterparts; Facsimile, PDF, Electronic Signatures",
-    82: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    83: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    84: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    85: "Counterparts; Facsimile or PDF Signatures",
-    86: "Counterparts; Facsimile, PDF or Electronic Signature",
-    87: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    88: "Counterparts; Facsimile or Electronic Signatures",
-    89: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    90: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    91: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    92: "Counterparts; Facsimile or PDF Signatures",
-    93: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    94: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    95: "Counterparts; Facsimile or Electronic Signatures",
-    96: "Counterparts; Facsimile, PDF or Electronic Signatures",
-    97: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    98: "Counterparts; Facsimile or PDF Signatures",
+    # ... (use your full 100 if you want)
     99: "Miscellaneous"
 }
 
-# ─── Load model & projection (cached) ────────────────────────────────────────
+# Simple color map (expand as needed)
+CLAUSE_COLORS = {
+    "Governing Law": "#ADD8E6",      # light blue
+    "Confidentiality": "#90EE90",     # light green
+    "Payment Terms": "#FFD700",       # gold/yellow
+    "Indemnification": "#FFB6C1",     # light pink
+    "Limitation of Liability": "#FFA07A",  # light salmon
+    "Miscellaneous": "#D3D3D3",       # light gray
+    "Unknown": "#E0E0E0"
+}
+
+# ─── Model Loading ───────────────────────────────────────────────────────────
 @st.cache_resource
 def load_components():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = PrototypicalNetwork().to(device)
+    model = PrototypicalNetwork()
     projection = torch.nn.Linear(768, 768).to(device)
     projection.load_state_dict(torch.load("projection_head.pth", map_location=device))
     projection.eval()
     dataset = load_dataset("lex_glue", "ledgar")
     return model, projection, dataset, device
+
 
 class PrototypicalNetwork(torch.nn.Module):
     def __init__(self):
@@ -140,88 +63,109 @@ class PrototypicalNetwork(torch.nn.Module):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.encoder = AutoModel.from_pretrained("nlpaueb/legal-bert-base-uncased").to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained("nlpaueb/legal-bert-base-uncased")
-    def forward(self, texts, batch_size=8):
-        embs = []
+
+    def forward(self, texts: List[str], batch_size: int = 8) -> torch.Tensor:
+        embeddings = []
         for i in range(0, len(texts), batch_size):
-            batch = texts[i:i+batch_size]
-            inputs = self.tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512).to(self.device)
+            batch = texts[i:i + batch_size]
+            inputs = self.tokenizer(batch, padding=True, truncation=True, return_tensors="pt", max_length=512)
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
             with torch.no_grad():
-                out = self.encoder(**inputs).last_hidden_state.mean(dim=1)
-            embs.append(out.cpu())
-        return torch.cat(embs)
-
-def normalize(t): return ' '.join(t.strip().lower().split())
-
-def predict_clause(text):
-    text = normalize(text)
+                outputs = self.encoder(**inputs)
+            batch_emb = outputs.last_hidden_state.mean(dim=1)
+            embeddings.append(batch_emb.cpu())
+        return torch.cat(embeddings, dim=0)
 
 
-    # Force include common useful classes (IDs)
-    forced_classes = [2, 8, 13, 14, 17, 24]  # Governing Law, Confidentiality, Payment Terms, Indemnification, Limitation, etc.
-    remaining = 5 - len(forced_classes) if len(forced_classes) < 5 else 0
-    extra_classes = np.random.choice(
-        [c for c in np.unique(dataset['train']['label']) if c not in forced_classes],
-        remaining,
-        replace=False
-    ) if remaining > 0 else []
-    
-    classes = np.concatenate([forced_classes, extra_classes])
-    np.random.shuffle(classes)  # mix order
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    text = text.strip().lower()
+    text = ' '.join(text.split())
+    return text
 
-    support, support_labels = [], []
-    for c in classes:
-        idx = np.where(np.array(dataset['train']['label']) == c)[0]
-        chosen = np.random.choice(idx, 5, replace=False)
-        support.extend([normalize(dataset['train']['text'][i]) for i in chosen])
-        support_labels.extend([c] * 5)
-    
+
+def predict_single_clause(clause: str, model, projection, dataset):
+    clause_norm = normalize_text(clause)
+    # Quick 1-shot dummy support (for speed in highlight mode)
+    # For demo we use a fixed small support set to avoid long runtime
+    support_texts = [
+        "This Agreement is governed by the laws of England.",
+        "The parties agree to keep all information confidential.",
+        "Payment is due within 30 days of invoice.",
+        "Each party shall indemnify the other for breaches.",
+        "Liability is limited to direct damages only."
+    ]
+    support_labels = [13, 8, 24, 14, 17]  # corresponding IDs
+
     with torch.no_grad():
-        s_emb = model(support, batch_size=8)
-        q_emb = model([text], batch_size=1)
-        s_proj = projection(s_emb.to(device))
-        q_proj = projection(q_emb.to(device))
-    
-    prototypes = torch.stack([s_proj[np.array(support_labels) == c].mean(0) for c in classes])
+        s_emb = model(support_texts, batch_size=8)
+        q_emb = model([clause_norm], batch_size=1)
+        s_proj = projection(s_emb.to(model.device))
+        q_proj = projection(q_emb.to(model.device))
+
+    prototypes = []
+    unique = np.unique(support_labels)
+    for lbl in unique:
+        mask = np.array(support_labels) == lbl
+        prototypes.append(s_proj[mask].mean(dim=0))
+    prototypes = torch.stack(prototypes)
+
     dists = torch.cdist(q_proj, prototypes)
     pred_idx = torch.argmin(dists).item()
     confidence = torch.softmax(-dists, dim=1)[0, pred_idx].item()
-    
-    pred_id = int(classes[pred_idx])
-    pred_name = LEDGAR_LABEL_NAMES.get(pred_id, f"Provision Type {pred_id}")
-    
-    return pred_name, pred_id, confidence
 
-# Load once
+    pred_id = unique[pred_idx]
+    pred_name = LEDGAR_LABEL_NAMES.get(pred_id, f"Type {pred_id}")
+    color = CLAUSE_COLORS.get(pred_name, "#E0E0E0")
+
+    return pred_name, confidence, color
+
+
+def highlight_clauses(full_text: str, model, projection, dataset):
+    # Simple clause splitting (improve later with better regex/NLP)
+    clauses = re.split(r'(?=\b(?:Section|Article|\d+\.|\([a-z]\)|[A-Z][a-z]+\s+Clause)\b|\n\s*\n)', full_text)
+    clauses = [c.strip() for c in clauses if c.strip() and len(c.strip()) > 20]
+
+    highlighted = ""
+    for clause in clauses:
+        name, conf, color = predict_single_clause(clause, model, projection, dataset)
+        highlighted += f'<span style="background-color:{color}; padding:2px 4px; border-radius:4px;" title="Confidence: {conf:.1%}">{clause}</span> '
+        highlighted += f'<small style="color:#555;">({name})</small><br>'
+
+    return highlighted
+
+
+# ─── Load once ───────────────────────────────────────────────────────────────
 model, projection, dataset, device = load_components()
 
-# UI
-st.subheader("Classify a Legal Clause")
-clause_input = st.text_area(
-    "Paste or type a single legal clause:",
-    height=180,
-    placeholder="Example: This Agreement shall be governed by the laws of England and Wales."
-)
+# ─── UI ──────────────────────────────────────────────────────────────────────
+st.subheader("Upload Contract PDF")
+pdf_file = st.file_uploader("Choose PDF", type="pdf")
 
-if st.button("Run Classification", type="primary"):
-    if clause_input.strip():
-        with st.spinner("Performing few-shot inference (5-way 5-shot)..."):
-            name, id_num, conf = predict_clause(clause_input)
-        
-        st.success("Done!")
-        
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.markdown("**Predicted Clause Type**")
-            st.subheader(name)
-        with col2:
-            st.metric("Confidence", f"{conf:.1%}")
-        with col3:
-            st.metric("Label ID", id_num)
-        
-        st.markdown("**Original Input Clause**")
-        st.code(clause_input.strip(), language=None)
-    else:
-        st.warning("Please enter a clause first.")
+if pdf_file is not None:
+    try:
+        doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text("text") + "\n\n"
+        doc.close()
 
-st.markdown("---")
-st.caption("LexiCache Prototype • Powered by meta-trained Legal-BERT • ~89.9% macro F1 • For demo only")
+        st.success("PDF processed!")
+
+        tab1, tab2 = st.tabs(["Highlighted Clauses", "Raw Text"])
+
+        with tab1:
+            with st.spinner("Detecting & classifying clauses..."):
+                highlighted_html = highlight_clauses(full_text, model, projection, dataset)
+            st.markdown(highlighted_html, unsafe_allow_html=True)
+
+        with tab2:
+            with st.expander("Full Extracted Text"):
+                st.text(full_text[:5000] + "..." if len(full_text) > 5000 else full_text)
+
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+
+else:
+    st.info("Upload a PDF contract to see clause-by-clause highlighting.")
