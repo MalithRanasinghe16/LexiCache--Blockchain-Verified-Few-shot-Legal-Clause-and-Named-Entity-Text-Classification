@@ -163,19 +163,95 @@ def train_prototypical_meta(
     print("\nNext step: load projection and run evaluation with projected embeddings.")
     return projection
 
-
+def evaluate_with_trained_projection(
+    n_way: int = 5,
+    k_shot: int = 5,
+    n_episodes: int = 50,
+    projection_path: str = "projection_head.pth",
+    apply_normalization: bool = True
+):
+    """
+    Evaluate few-shot performance using the trained projection head.
+    Compares against frozen baseline.
+    """
+    print(f"Evaluating with trained projection: {n_way}-way {k_shot}-shot | {n_episodes} episodes")
+    
+    dataset = load_dataset("lex_glue", "ledgar")
+    train_texts = dataset['train']['text']
+    train_labels = np.array(dataset['train']['label'])
+    
+    model = PrototypicalNetwork("nlpaueb/legal-bert-base-uncased")
+    model.eval()
+    
+    # Load trained projection
+    projection = nn.Linear(model.hidden_size, model.hidden_size).to(model.device)
+    projection.load_state_dict(torch.load(projection_path, map_location=model.device))
+    projection.eval()
+    
+    all_preds, all_true = [], []
+    
+    for episode in tqdm(range(n_episodes), desc="Evaluation Episodes"):
+        global_classes = np.random.choice(np.unique(train_labels), n_way, replace=False)
+        global_to_local = {g: i for i, g in enumerate(global_classes)}
+        
+        support_idx, query_idx = [], []
+        support_local, query_local = [], []
+        
+        for local_id, global_c in enumerate(global_classes):
+            c_idx = np.where(train_labels == global_c)[0]
+            np.random.shuffle(c_idx)
+            support_idx.extend(c_idx[:k_shot])
+            query_idx.extend(c_idx[k_shot:k_shot + 15])
+            
+            support_local.extend([local_id] * k_shot)
+            query_local.extend([local_id] * len(c_idx[k_shot:k_shot + 15]))
+        
+        support_texts = [normalize_text(train_texts[i]) for i in support_idx] if apply_normalization else [train_texts[i] for i in support_idx]
+        query_texts   = [normalize_text(train_texts[i]) for i in query_idx]   if apply_normalization else [train_texts[i] for i in query_idx]
+        
+        support_labels_local = torch.tensor(support_local).to(model.device)
+        query_labels_local   = torch.tensor(query_local).to(model.device)
+        
+        with torch.no_grad():
+            support_emb = model(support_texts, batch_size=16)
+            query_emb   = model(query_texts,   batch_size=16)
+            
+            support_proj = projection(support_emb.to(model.device))
+            query_proj   = projection(query_emb.to(model.device))
+        
+        prototypes, _ = model.compute_prototypes(support_proj, support_labels_local)
+        dists = torch.cdist(query_proj, prototypes)
+        preds = torch.argmin(dists, dim=-1)
+        
+        all_preds.extend(preds.cpu().numpy())
+        all_true.extend(query_labels_local.cpu().numpy())
+    
+    macro_f1 = f1_score(all_true, all_preds, average='macro')
+    print(f"\nMacro F1 with trained projection ({n_way}-way {k_shot}-shot): {macro_f1:.4f}")
+    print(f"(Previous frozen baseline was ~0.7277)")
 
 if __name__ == "__main__":
     # Option A: Run evaluation only 
     # run_few_shot_ledgar(n_way=5, k_shot=5, n_episodes=50, apply_normalization=True)
     
     # Option B: Run meta-training 
-    train_prototypical_meta(
+    # train_prototypical_meta(
+    #     n_way=5,
+    #     k_shot=5,
+    #     n_episodes_train=1000,      
+    #     epochs=5,
+    #     batch_size=16,
+    #     lr=1e-4,
+    #     save_path="projection_head.pth"
+    # )
+
+
+    
+    # Evaluate with the saved projection
+    evaluate_with_trained_projection(
         n_way=5,
         k_shot=5,
-        n_episodes_train=1000,      
-        epochs=5,
-        batch_size=16,
-        lr=1e-4,
-        save_path="projection_head.pth"
+        n_episodes=50,
+        projection_path="projection_head.pth",
+        apply_normalization=True
     )
