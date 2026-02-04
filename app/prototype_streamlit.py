@@ -81,14 +81,14 @@ LEDGAR_LABEL_NAMES = {
     57: "No Agency",
     58: "Counterparts; Facsimile and Electronic Signatures",
     59: "No Partnership or Joint Venture",
-    60: "Counterparts; Facsimile, Electronic or PDF Signatures",
-    61: "Counterparts; Facsimile, PDF or Electronic Signatures",
+    60: "Counterparts; Facsimile, PDF or Electronic Signatures",
+    61: "Counterparts; Facsimile, PDF or Electronic Signature",
     62: "No Agency or Partnership",
     63: "Counterparts; Facsimile or PDF Signatures",
     64: "Counterparts; Facsimile, PDF or Electronic Signature",
     65: "Counterparts; Facsimile or Electronic Signature",
     66: "Counterparts; Facsimile, PDF or Electronic Signature",
-    67: "Counterparts; Facsimile, Electronic or PDF Signature",
+    67: "Counterparts; Facsimile, Electronic or PDF Signatures",
     68: "Counterparts; Facsimile, PDF or Electronic Signatures",
     69: "Counterparts; Facsimile, Electronic or PDF Signatures",
     70: "Counterparts; Facsimile or Electronic Signatures",
@@ -99,7 +99,7 @@ LEDGAR_LABEL_NAMES = {
     75: "Counterparts; Facsimile, PDF or Electronic Signatures",
     76: "Counterparts; Facsimile or PDF Signatures",
     77: "Counterparts; Facsimile, PDF or Electronic Signature",
-    78: "Counterparts; Facsimile, Electronic or PDF Signature",
+    78: "Counterparts; Facsimile, Electronic or PDF Signatures",
     79: "Counterparts; Facsimile or Electronic Signature",
     80: "Counterparts; Facsimile, PDF or Electronic Signatures",
     81: "Counterparts; Facsimile, PDF, Electronic Signatures",
@@ -154,7 +154,20 @@ def normalize(t): return ' '.join(t.strip().lower().split())
 
 def predict_clause(text):
     text = normalize(text)
-    classes = np.random.choice(np.unique(dataset['train']['label']), 5, replace=False)
+
+
+    # Force include common useful classes (IDs)
+    forced_classes = [2, 8, 13, 14, 17, 24]  # Governing Law, Confidentiality, Payment Terms, Indemnification, Limitation, etc.
+    remaining = 5 - len(forced_classes) if len(forced_classes) < 5 else 0
+    extra_classes = np.random.choice(
+        [c for c in np.unique(dataset['train']['label']) if c not in forced_classes],
+        remaining,
+        replace=False
+    ) if remaining > 0 else []
+    
+    classes = np.concatenate([forced_classes, extra_classes])
+    np.random.shuffle(classes)  # mix order
+
     support, support_labels = [], []
     for c in classes:
         idx = np.where(np.array(dataset['train']['label']) == c)[0]
