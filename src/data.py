@@ -182,8 +182,6 @@ def download_ledgar_dataset(save_path: Optional[Path] = None) -> Dict:
     print("Downloading LEDGAR Dataset (Legal Provisions)")
     print("="*60)
     print("Source: https://huggingface.co/datasets/lex_glue")
-    print("License: CC BY-SA 4.0")
-    print("Citation: Chalkidis et al. (2022)")
     
     try:
         # Load LEDGAR subset from LexGLUE
