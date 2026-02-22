@@ -100,51 +100,39 @@ def normalize_text(text: str) -> str:
 
 def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
     """
-    Download CUAD (Contract Understanding Atticus Dataset).
-    
-    CUAD contains expert annotations of 510 legal contracts with 41 types of 
-    important clauses for contract review in M&A transactions.
-    
-    Citation:
-    Hendrycks, D., et al. (2021). CUAD: An Expert-Annotated NLP Dataset for 
-    Legal Contract Review. arXiv:2103.06268.
-    
-    License: CC BY 4.0
-    
-    Args:
-        save_path (Path, optional): Path to save processed data
-        
-    Returns:
-        dict: Dataset with train/test splits
+    Load CUAD from Kaggle cache (already downloaded successfully).
+    This is the official full dataset with 41 clause types and expert spans.
     """
     print("\n" + "="*60)
-    print("Downloading CUAD Dataset (Contract Clauses)")
+    print("Loading CUAD Dataset from Kaggle Cache")
     print("="*60)
-    print("Source: https://huggingface.co/datasets/cuad")
+    print("Source: Kaggle - Atticus Open Contract Dataset (AOK Beta)")
     print("License: CC BY 4.0")
     print("Citation: Hendrycks et al. (2021)")
-    
+
     try:
-        # Load dataset from Hugging Face
-        dataset = load_dataset("cuad", trust_remote_code=True)
+        # Kaggle cache path (already downloaded)
+        kaggle_cache_path = Path(r"C:\Users\T.M.Malith Sandeepa\.cache\kagglehub\datasets\theatticusproject\atticus-open-contract-dataset-aok-beta\versions\3")
         
-        print(f"✓ Successfully loaded CUAD dataset")
-        print(f"  - Train samples: {len(dataset['train']) if 'train' in dataset else 'N/A'}")
-        print(f"  - Test samples: {len(dataset['test']) if 'test' in dataset else 'N/A'}")
+        if not kaggle_cache_path.exists():
+            raise FileNotFoundError("CUAD cache not found. Please run kagglehub download again.")
+
+        print(f"✓ Successfully loaded CUAD from: {kaggle_cache_path}")
+        print(f"  - Full contracts available in: {kaggle_cache_path / 'CUAD_v1'}")
         
-        # Save processed data
+        # Save metadata
         if save_path:
             save_path = Path(save_path)
             save_path.mkdir(parents=True, exist_ok=True)
             
-            # Save metadata
             metadata = {
                 "dataset": "CUAD",
-                "source": "https://huggingface.co/datasets/cuad",
+                "source": "Kaggle - theatticusproject/atticus-open-contract-dataset-aok-beta",
                 "license": "CC BY 4.0",
                 "citation": "Hendrycks, D., et al. (2021). CUAD: An Expert-Annotated NLP Dataset for Legal Contract Review.",
-                "splits": list(dataset.keys()),
-                "description": "Legal contract clauses for M&A contract review"
+                "local_path": str(kaggle_cache_path),
+                "description": "510 full legal contracts with 41 clause types + expert span annotations",
+                "status": "full_dataset_loaded_via_kaggle"
             }
             
             with open(save_path / "cuad_metadata.json", "w") as f:
@@ -152,10 +140,10 @@ def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
             
             print(f"✓ Metadata saved to {save_path / 'cuad_metadata.json'}")
         
-        return dataset
+        return {"path": kaggle_cache_path, "status": "success"}
         
     except Exception as e:
-        print(f"✗ Error downloading CUAD: {str(e)}")
+        print(f"✗ Error loading CUAD from cache: {str(e)}")
         return None
 
 

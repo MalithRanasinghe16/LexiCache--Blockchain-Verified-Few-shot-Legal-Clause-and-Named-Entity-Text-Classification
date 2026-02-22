@@ -14,9 +14,6 @@ st.markdown("""
 # LexiCache – Clause Highlighting Prototype  
 **Blockchain Verified Few-shot Legal Clause Classification**
 
-**Student:** T.M.M.S. Ranasinghe | **Supervisor:** Mr. Jihan Jeeth  
-IIT × University of Westminster | February 2026  
-
 **Model:** Meta-trained Legal-BERT | **Performance:** 89.87% macro F1 (5-way 5-shot on LEDGAR)
 """)
 
