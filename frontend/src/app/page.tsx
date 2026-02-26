@@ -680,20 +680,20 @@ export default function Home() {
                   {file ? (
                     <>
                       <FileText className="w-12 h-12 text-blue-500 mb-3" />
-                      <span className="text-lg font-medium text-gray-800">
+                      <span className="text-lg font-medium text-black">
                         {file.name}
                       </span>
-                      <span className="text-sm text-gray-500 mt-1">
+                      <span className="text-sm text-black mt-1">
                         {(file.size / 1024).toFixed(1)} KB
                       </span>
                     </>
                   ) : (
                     <>
-                      <Upload className="w-12 h-12 text-gray-400 mb-3" />
-                      <span className="text-lg font-medium text-gray-600">
+                      <Upload className="w-12 h-12 text-black mb-3" />
+                      <span className="text-lg font-medium text-black">
                         Click or drag file here
                       </span>
-                      <span className="text-sm text-gray-400 mt-1">
+                      <span className="text-sm text-black mt-1">
                         PDF, DOC, DOCX supported
                       </span>
                     </>
@@ -725,7 +725,7 @@ export default function Home() {
                 >
                   {loading ? (
                     <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <Loader2 className="w-5 h-5 animate-spin text-black" />
                       Analyzing Document...
                     </>
                   ) : (
@@ -744,12 +744,12 @@ export default function Home() {
             {/* PDF Viewer with Highlights */}
             <div className="lg:w-3/5 p-8 border-r border-gray-200">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-semibold flex items-center gap-2">
-                  <Eye className="w-6 h-6" /> Analyzed Document
+                <h2 className="text-2xl font-semibold flex items-center gap-2 text-black">
+                  <Eye className="w-6 h-6 text-black" /> Analyzed Document
                 </h2>
                 <button
                   onClick={resetAnalysis}
-                  className="px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                  className="px-4 py-2 text-sm bg-black text-white hover:bg-gray-800 rounded-lg transition"
                 >
                   Upload New Document
                 </button>
@@ -802,7 +802,7 @@ export default function Home() {
                             height: pageHeights[index] || 1100,
                           }}
                         />
-                        <div className="text-center text-xs text-gray-400 py-2">
+                        <div className="text-center text-xs text-black py-2">
                           Page {index + 1} of {numPages}
                         </div>
                       </div>
@@ -811,7 +811,7 @@ export default function Home() {
                 ) : (
                   /* Text Viewer with HTML Highlighting for DOC/DOCX */
                   <div className="bg-white p-8 shadow-sm">
-                    <div className="mb-4 text-xs text-gray-500 flex items-center gap-2">
+                    <div className="mb-4 text-xs text-black flex items-center gap-2">
                       <FileText className="w-4 h-4" />
                       <span>
                         {file?.name} ({fileType.toUpperCase()})
@@ -828,7 +828,7 @@ export default function Home() {
               {/* Detected Clauses with Filters */}
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-lg">Detected Clauses</h3>
+                  <h3 className="font-semibold text-lg text-black">Detected Clauses</h3>
                   <button
                     onClick={() => setShowFilters(!showFilters)}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
@@ -840,11 +840,11 @@ export default function Home() {
 
                 {/* Filter Panel */}
                 {showFilters && (
-                  <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-4">
+                  <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-4 text-black">
                     {/* Clause Type Filters */}
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <label className="text-sm font-medium text-gray-700">
+                        <label className="text-sm font-medium text-black">
                           Clause Types
                         </label>
                         <button
@@ -880,7 +880,7 @@ export default function Home() {
                               style={{ backgroundColor: colorMap[type] }}
                             />
                             <span className="text-sm flex-1">{type}</span>
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-black">
                               (
                               {result.result?.filter(
                                 (c: ClauseResult) => c.clause_type === type,
@@ -894,7 +894,7 @@ export default function Home() {
 
                     {/* Confidence Filter */}
                     <div>
-                      <label className="text-sm font-medium text-gray-700 block mb-2">
+                      <label className="text-sm font-medium text-black block mb-2">
                         Minimum Confidence: {minConfidence}%
                       </label>
                       <input
@@ -908,7 +908,7 @@ export default function Home() {
                         }
                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                       />
-                      <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <div className="flex justify-between text-xs text-black mt-1">
                         <span>0%</span>
                         <span>50%</span>
                         <span>100%</span>
@@ -916,7 +916,7 @@ export default function Home() {
                     </div>
 
                     {/* Active Filters Summary */}
-                    <div className="text-xs text-gray-600 pt-2 border-t border-gray-200">
+                    <div className="text-xs text-black pt-2 border-t border-gray-200">
                       Showing {getFilteredClauses().length} of{" "}
                       {result.result?.length || 0} clauses
                     </div>
@@ -924,7 +924,7 @@ export default function Home() {
                 )}
 
                 {/* Clauses List */}
-                <div className="space-y-3 max-h-96 overflow-y-auto">
+                <div className="space-y-3 max-h-96 overflow-y-auto text-black">
                   {getFilteredClauses().length > 0 ? (
                     getFilteredClauses().map(
                       (clause: ClauseResult, idx: number) => (
@@ -944,18 +944,18 @@ export default function Home() {
                             <span className="font-medium">
                               {clause.clause_type}
                             </span>
-                            <span className="ml-auto text-sm text-gray-500">
+                            <span className="ml-auto text-sm text-black">
                               {(clause.confidence * 100).toFixed(1)}%
                             </span>
                           </div>
-                          <p className="text-sm text-gray-600 line-clamp-2">
+                          <p className="text-sm text-black line-clamp-2">
                             {clause.span}
                           </p>
                         </div>
                       ),
                     )
                   ) : (
-                    <div className="text-center text-gray-500 py-8">
+                    <div className="text-center text-black py-8">
                       <Filter className="w-12 h-12 mx-auto mb-2 opacity-30" />
                       <p className="text-sm">No clauses match your filters</p>
                       <button
@@ -974,12 +974,12 @@ export default function Home() {
 
               {/* Color Legend */}
               <div>
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                <h3 className="font-semibold mb-4 flex items-center gap-2 text-black">
                   <Palette className="w-5 h-5" /> Clause Color Legend
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   {getClauseTypes().map((clause) => (
-                    <div key={clause} className="flex items-center gap-3">
+                    <div key={clause} className="flex items-center gap-3 text-black">
                       <div className="flex gap-1">
                         <div
                           className="w-8 h-8 rounded-lg border shadow-sm cursor-pointer hover:scale-110 transition"
@@ -1000,7 +1000,7 @@ export default function Home() {
                             input.click();
                           }}
                         />
-                        <button
+                        {/* <button
                           className="w-6 h-8 rounded border bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-xs transition"
                           title="Generate new random color"
                           onClick={() => {
@@ -1010,10 +1010,9 @@ export default function Home() {
                             }));
                           }}
                         >
-                          🎲
-                        </button>
+                        </button> */}
                       </div>
-                      <span className="text-sm font-medium truncate">
+                      <span className="text-sm font-medium truncate text-black">
                         {clause}
                       </span>
                     </div>
@@ -1027,18 +1026,18 @@ export default function Home() {
                     });
                     setColorMap(newColorMap);
                   }}
-                  className="mt-3 w-full px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition flex items-center justify-center gap-2"
+                  className="mt-3 w-full px-3 py-2 text-sm bg-black text-white hover:bg-gray-800 rounded-lg transition flex items-center justify-center gap-2"
                 >
-                  🎨 Regenerate All Colors
+                  Regenerate All Colors
                 </button>
               </div>
 
               {/* Search Bar */}
-              <div>
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                  <Search className="w-5 h-5" /> Search in Document
+              <div >
+                <h3 className="font-semibold mb-4 flex items-center gap-2 text-black">
+                  <Search className="w-5 h-5 text-black" /> Search in Document
                 </h3>
-                <div className="flex gap-3">
+                <div className="flex gap-3 text-black">
                   <input
                     type="text"
                     value={searchTerm}
@@ -1049,13 +1048,13 @@ export default function Home() {
                   />
                   <button
                     onClick={handleSearch}
-                    className="px-5 py-3 bg-gray-800 text-white rounded-xl hover:bg-gray-900 transition"
+                    className="px-5 py-3 bg-black text-white rounded-xl hover:bg-gray-800 transition"
                   >
                     Search
                   </button>
                 </div>
                 {highlightedText && (
-                  <p className="mt-2 text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-black">
                     Highlighting:{" "}
                     <span className="font-medium">
                       "{highlightedText.substring(0, 50)}..."
