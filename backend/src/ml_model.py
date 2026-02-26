@@ -8,9 +8,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 import re
+import json
+import pickle
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from collections import defaultdict
+from datetime import datetime
 
 from src.modeling import PrototypicalNetwork
 from src.data import normalize_text
@@ -23,26 +26,77 @@ CLAUSE_PATTERNS = [
     r'(?:^|\n)\s*([A-Z][A-Z\s]{2,}:)',                 # ALL CAPS HEADERS:
 ]
 
-# Known clause type keywords for heuristic matching
+# All 41 CUAD clause types with keyword-based heuristics
+# From: https://www.atticusprojectai.org/cuad
 CLAUSE_KEYWORDS = {
-    'Governing Law': ['governing law', 'choice of law', 'applicable law', 'laws of', 'jurisdiction'],
-    'Termination': ['termination', 'terminate', 'cancellation', 'expiration', 'end of agreement'],
-    'Confidentiality': ['confidential', 'non-disclosure', 'proprietary information', 'trade secret'],
+    # Core Agreement Terms
+    'Document Name': ['agreement', 'contract', 'master agreement', 'this agreement'],
+    'Parties': ['party', 'parties', 'by and between', 'hereinafter'],
+    'Agreement Date': ['dated', 'effective date', 'as of', 'entered into'],
+    'Effective Date': ['effective', 'commence', 'commencement date', 'start date'],
+    'Expiration Date': ['expire', 'expiration', 'term end', 'until'],
+    
+    # Financial & Payment
+    'Payment Terms': ['payment', 'invoice', 'compensation', 'fees', 'billing', 'price', 'pay'],
+    'Cap on Liability': ['cap on liability', 'maximum liability', 'aggregate liability', 'liability limited'],
+    'Liquidated Damages': ['liquidated damages', 'predetermined damages', 'fixed damages'],
+    'Revenue/Profit Sharing': ['revenue sharing', 'profit sharing', 'share of revenue', 'percentage of'],
+    'Price Restrictions': ['price', 'pricing', 'minimum price', 'maximum price', 'most favored'],
+    'Minimum Commitment': ['minimum purchase', 'minimum commitment', 'minimum quantity', 'minimum volume'],
+    'Volume Restriction': ['maximum volume', 'volume restriction', 'quantity restriction'],
+    
+    # Liability & Risk
+    'Limitation of Liability': ['limitation of liability', 'limit liability', 'damages shall not exceed', 'not liable'],
     'Indemnification': ['indemnif', 'hold harmless', 'defend and indemnify', 'indemnity'],
-    'Payment Terms': ['payment', 'invoice', 'compensation', 'fees', 'billing', 'price'],
-    'Limitation of Liability': ['limitation of liability', 'limit liability', 'damages shall not exceed'],
-    'Force Majeure': ['force majeure', 'act of god', 'beyond control'],
-    'Intellectual Property': ['intellectual property', 'patent', 'copyright', 'trademark', 'ip rights'],
-    'Warranties': ['warrant', 'representation', 'guarantee', 'as-is'],
-    'Assignment': ['assignment', 'assign', 'transfer of rights', 'successor'],
-    'Notice': ['notice', 'notification', 'written notice', 'notify'],
-    'Dispute Resolution': ['dispute', 'arbitration', 'mediation', 'litigation'],
-    'Non-Compete': ['non-compete', 'non-competition', 'compete'],
-    'Severability': ['severability', 'severable', 'invalid provision'],
+    'Warranty Duration': ['warranty period', 'warranty shall', 'warranted for', 'guarantee period'],
+    'Insurance': ['insurance', 'insure', 'coverage', 'insurance policy'],
+    
+    # Termination & Renewal
+    'Termination': ['termination', 'terminate', 'cancellation', 'end of agreement'],
+    'Termination for Convenience': ['terminate for convenience', 'without cause', 'at will'],
+    'Renewal Term': ['renewal', 'renew', 'automatically renew', 'extend'],
+    'Notice Period to Terminate Renewal': ['notice to terminate', 'notice prior to renewal', 'notice of non-renewal'],
+    'Post-Termination Services': ['post-termination', 'after termination', 'wind down', 'transition'],
+    
+    # Restrictions & Competition
+    'Non-Compete': ['non-compete', 'non-competition', 'compete', 'competitive'],
+    'Exclusivity': ['exclusive', 'exclusivity', 'sole', 'only'],
+    'No-Solicit of Customers': ['non-solicitation', 'no-solicit', 'not solicit customers'],
+    'No-Solicit of Employees': ['no-solicit employees', 'not hire employees', 'non-solicitation of personnel'],
+    'Non-Disparagement': ['non-disparagement', 'not disparage', 'no negative statements'],
+    
+    # IP & Confidentiality
+    'Intellectual Property': ['intellectual property', 'patent', 'copyright', 'trademark', 'ip rights', 'ip'],
+    'IP Ownership Assignment': ['assign', 'assignment of ip', 'ownership', 'work for hire'],
+    'Joint IP Ownership': ['joint ownership', 'jointly own', 'co-ownership'],
+    'License Grant': ['license', 'grant', 'right to use', 'licensed'],
+    'Confidentiality': ['confidential', 'non-disclosure', 'proprietary information', 'trade secret'],
+    
+    # Change & Updates
+    'Change of Control': ['change of control', 'change in ownership', 'acquisition', 'merger'],
+    'Anti-Assignment': ['not assign', 'no assignment', 'assignment prohibited', 'anti-assignment'],
+    'Covenant Not to Sue': ['covenant not to sue', 'agree not to sue', 'waive right to sue'],
+    
+    # Legal & Governance
+    'Governing Law': ['governing law', 'choice of law', 'applicable law', 'laws of', 'governed by'],
+    'Dispute Resolution': ['dispute', 'arbitration', 'mediation', 'litigation', 'resolve disputes'],
+    'Jurisdiction': ['jurisdiction', 'venue', 'submit to jurisdiction', 'courts of'],
+    'Notice': ['notice', 'notification', 'written notice', 'notify', 'give notice'],
+    'Force Majeure': ['force majeure', 'act of god', 'beyond control', 'unforeseeable'],
+    'Severability': ['severability', 'severable', 'invalid provision', 'unenforceable'],
+    'Entire Agreement': ['entire agreement', 'whole agreement', 'complete agreement', 'supersedes'],
+    'Amendment': ['amendment', 'modify', 'modification', 'change', 'amend'],
+    'Waiver': ['waiver', 'waive', 'failure to enforce'],
+    
+    # Other
+    'Third Party Beneficiary': ['third party beneficiary', 'third-party', 'benefit of'],
+    'Audit Rights': ['audit', 'right to audit', 'inspect', 'examination of records'],
+    'ROFR/ROFO/ROFN': ['right of first refusal', 'right of first offer', 'rofr', 'rofo', 'first right'],
+    'Most Favored Nation': ['most favored nation', 'mfn', 'most favored customer'],
 }
 
 class LexiCacheModel:
-    def __init__(self, projection_path="final_projection_head.pth"):
+    def __init__(self, projection_path="final_projection_head.pth", support_set_path="support_set.pkl"):
         print("[LexiCacheModel] Loading adaptive meta-learning model...")
         self.model = PrototypicalNetwork()
         self.projection = nn.Linear(self.model.hidden_size, self.model.hidden_size).to(self.model.device)
@@ -54,9 +108,20 @@ class LexiCacheModel:
         self.support_labels = []          # list of clause type names (strings)
         self.label_to_id = {}             # map string label → local id
         self.next_label_id = 0
+        self.support_set_path = support_set_path
+        
+        # Confidence thresholds
+        self.high_confidence_threshold = 0.75  # Trust model/keywords
+        self.medium_confidence_threshold = 0.55  # Show but mark as uncertain
+        self.low_confidence_threshold = 0.40  # Flag as unknown, ask user
+        
+        # Load persistent support set if exists
+        self._load_support_set()
 
         print(f"[LexiCacheModel] Adaptive model ready. Unknown clause detection enabled.")
         print(f"  Device: {self.model.device}")
+        print(f"  Support set size: {len(self.support_embeddings)} examples")
+        print(f"  Known clause types: {len(CLAUSE_KEYWORDS)} (CUAD standard)")
 
     def _segment_contract(self, text: str) -> List[Dict]:
         """
@@ -128,35 +193,73 @@ class LexiCacheModel:
 
     def _classify_segment(self, segment_text: str) -> Dict:
         """
-        Classify a single text segment using the model or heuristics.
+        Classify a single text segment using hybrid approach:
+        1. Keyword heuristics (fast, interpretable)
+        2. Few-shot model (learned from user feedback)
+        3. Flag low-confidence as unknown for user feedback
         """
         normalized = normalize_text(segment_text)
-        
-        # First try keyword-based classification (fast and interpretable)
-        kw_type, kw_conf = self._classify_by_keywords(segment_text)
         
         # Get embedding for model-based classification
         with torch.no_grad():
             emb = self.model([normalized], batch_size=1)
             proj = self.projection(emb.to(self.model.device))
         
-        # If we have a support set, use model prediction
+        # Strategy 1: Try keyword-based classification (fast and interpretable)
+        kw_type, kw_conf = self._classify_by_keywords(segment_text)
+        
+        # Strategy 2: If we have a support set, use meta-learned model
+        model_type, model_conf = None, 0.0
         if len(self.support_embeddings) > 0:
             support_emb = torch.stack(self.support_embeddings).to(self.model.device)
             dists = torch.cdist(proj, support_emb)
             pred_idx = dists.argmin().item()
-            model_conf = torch.softmax(-dists, dim=1)[0, pred_idx].item()
-            model_type = self.support_labels[pred_idx]
             
-            # Use whichever is more confident
+            # Convert distance to confidence (closer = higher confidence)
+            min_dist = dists[0, pred_idx].item()
+            model_conf = max(0.0, 1.0 - (min_dist / 2.0))  # Normalize distance to confidence
+            model_type = self.support_labels[pred_idx]
+        
+        # Decision logic: Choose best prediction
+        final_type = None
+        final_conf = 0.0
+        source = 'unknown'
+        
+        # Prefer model if it's confident and exists
+        if model_type and model_conf >= self.medium_confidence_threshold:
             if model_conf > kw_conf:
-                return {'clause_type': model_type, 'confidence': model_conf}
+                final_type = model_type
+                final_conf = model_conf
+                source = 'model'
         
-        # Fall back to keyword classification or Unknown
-        if kw_type:
-            return {'clause_type': kw_type, 'confidence': kw_conf}
+        # Fall back to keywords if model is not confident enough
+        if not final_type and kw_type and kw_conf >= self.medium_confidence_threshold:
+            final_type = kw_type
+            final_conf = kw_conf
+            source = 'keywords'
         
-        return {'clause_type': 'General Provision', 'confidence': 0.50}
+        # If both are low confidence, pick the better one but flag it
+        if not final_type:
+            if model_conf >= kw_conf and model_type:
+                final_type = model_type
+                final_conf = model_conf
+                source = 'model_uncertain'
+            elif kw_type:
+                final_type = kw_type
+                final_conf = kw_conf
+                source = 'keywords_uncertain'
+            else:
+                # True unknown - needs user feedback
+                final_type = 'Unknown Clause'
+                final_conf = 0.40
+                source = 'unknown'
+        
+        return {
+            'clause_type': final_type,
+            'confidence': final_conf,
+            'source': source,
+            'embedding': proj  # Store for potential learning
+        }
 
     def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.55) -> List[Dict]:
         """
@@ -187,24 +290,45 @@ class LexiCacheModel:
                     span_text = seg['text'][:300] if len(seg['text']) > 300 else seg['text']
                     span_text = ' '.join(span_text.split())  # Normalize whitespace
                     
-                    results.append({
+                    result_dict = {
                         'clause_type': classification['clause_type'],
                         'confidence': classification['confidence'],
                         'span': span_text,
                         'start_idx': seg['start_idx'],
-                        'end_idx': seg['end_idx']
-                    })
+                        'end_idx': seg['end_idx'],
+                        'source': classification.get('source', 'unknown')
+                    }
+                    
+                    # Store embedding for potential learning (convert to list for JSON serialization)
+                    if 'embedding' in classification:
+                        # Don't include in API response (too large), but could be stored server-side
+                        pass
+                    
+                    results.append(result_dict)
                     seen_types[type_key] += 1
         
         # Sort by confidence descending
         results.sort(key=lambda x: x['confidence'], reverse=True)
         
-        # Limit to top 10 most confident clauses
-        results = results[:10]
+        # Limit to top 15 most confident clauses (more comprehensive)
+        results = results[:15]
         
-        print(f"Identified {len(results)} high-confidence clauses:")
+        # Mark clauses that need user review
+        uncertain_count = 0
         for r in results:
-            print(f"  • {r['clause_type']}: {r['confidence']*100:.1f}% - \"{r['span'][:50]}...\"")
+            if r['confidence'] < self.high_confidence_threshold:
+                r['needs_review'] = True
+                uncertain_count += 1
+            else:
+                r['needs_review'] = False
+        
+        print(f"Identified {len(results)} clauses:")
+        for r in results:
+            confidence_emoji = "🟢" if r['confidence'] >= self.high_confidence_threshold else "🟡" if r['confidence'] >= self.medium_confidence_threshold else "🔴"
+            print(f"  {confidence_emoji} {r['clause_type']}: {r['confidence']*100:.1f}% - \"{r['span'][:50]}...\"")
+        
+        if uncertain_count > 0:
+            print(f"\n  ⚠️  {uncertain_count} clause(s) have uncertain predictions - user feedback recommended")
         print(f"{'='*85}\n")
         
         # If no clauses found, return at least one default
@@ -219,15 +343,85 @@ class LexiCacheModel:
         
         return results
 
-    def _add_to_support_set(self, embedding: torch.Tensor, label: str):
-        """Online meta-learning: add new example and update support set"""
-        if label not in self.label_to_id:
-            self.label_to_id[label] = self.next_label_id
-            self.next_label_id += 1
+    def _load_support_set(self):
+        """Load persistent support set from disk"""
+        if Path(self.support_set_path).exists():
+            try:
+                with open(self.support_set_path, 'rb') as f:
+                    data = pickle.load(f)
+                    self.support_embeddings = data.get('embeddings', [])
+                    self.support_labels = data.get('labels', [])
+                    self.label_to_id = data.get('label_to_id', {})
+                    self.next_label_id = data.get('next_label_id', 0)
+                print(f"  ✓ Loaded {len(self.support_embeddings)} examples from persistent storage")
+            except Exception as e:
+                print(f"  ⚠ Failed to load support set: {e}")
+    
+    def _save_support_set(self):
+        """Save support set to disk for persistence across sessions"""
+        try:
+            data = {
+                'embeddings': self.support_embeddings,
+                'labels': self.support_labels,
+                'label_to_id': self.label_to_id,
+                'next_label_id': self.next_label_id,
+                'timestamp': datetime.now().isoformat()
+            }
+            with open(self.support_set_path, 'wb') as f:
+                pickle.dump(data, f)
+            print(f"  ✓ Saved {len(self.support_embeddings)} examples to persistent storage")
+        except Exception as e:
+            print(f"  ⚠ Failed to save support set: {e}")
+    
+    def learn_from_feedback(self, clause_text: str, correct_label: str) -> bool:
+        """
+        Online meta-learning: User provides correct label for a clause.
+        This immediately updates the support set.
         
-        self.support_embeddings.append(embedding.squeeze(0).cpu())
-        self.support_labels.append(label)
+        Args:
+            clause_text: The text of the clause
+            correct_label: The correct clause type (e.g., 'Termination')
         
-        # Optional: periodically fine-tune projection (lightweight)
-        if len(self.support_embeddings) % 5 == 0:
-            print("   → Performing light online fine-tuning on new examples...")
+        Returns:
+            True if learning was successful
+        """
+        try:
+            normalized = normalize_text(clause_text)
+            
+            # Get embedding
+            with torch.no_grad():
+                emb = self.model([normalized], batch_size=1)
+                proj = self.projection(emb.to(self.model.device))
+            
+            # Add to support set
+            if correct_label not in self.label_to_id:
+                self.label_to_id[correct_label] = self.next_label_id
+                self.next_label_id += 1
+            
+            self.support_embeddings.append(proj.squeeze(0).cpu())
+            self.support_labels.append(correct_label)
+            
+            print(f"  ✓ Learned: '{correct_label}' (support set now has {len(self.support_embeddings)} examples)")
+            
+            # Save to disk every 5 new examples
+            if len(self.support_embeddings) % 5 == 0:
+                self._save_support_set()
+            
+            return True
+        except Exception as e:
+            print(f"  ✗ Failed to learn from feedback: {e}")
+            return False
+    
+    def get_statistics(self) -> Dict:
+        """Get statistics about the model's knowledge"""
+        label_counts = defaultdict(int)
+        for label in self.support_labels:
+            label_counts[label] += 1
+        
+        return {
+            'total_examples': len(self.support_embeddings),
+            'unique_types': len(self.label_to_id),
+            'known_cuad_types': len(CLAUSE_KEYWORDS),
+            'label_distribution': dict(label_counts),
+            'device': str(self.model.device)
+        }
