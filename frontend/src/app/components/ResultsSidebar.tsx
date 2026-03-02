@@ -13,6 +13,7 @@ type Props = {
   searchTerm: string;
   highlightedText: string;
   showFilters: boolean;
+  activeClause: ClauseResult | null;
   onToggleFilters: () => void;
   onToggleType: (type: string) => void;
   onConfidenceChange: (val: number) => void;
@@ -32,6 +33,7 @@ export default function ResultsSidebar({
   searchTerm,
   highlightedText,
   showFilters,
+  activeClause,
   onToggleFilters,
   onToggleType,
   onConfidenceChange,
@@ -103,6 +105,7 @@ export default function ResultsSidebar({
         <ClauseList
           clauses={filteredClauses}
           colorMap={colorMap}
+          activeClause={activeClause}
           onClauseClick={onClauseClick}
           onResetFilters={() => {
             onSelectAll();

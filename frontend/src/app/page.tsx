@@ -35,6 +35,8 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [highlightedText, setHighlightedText] = useState("");
+  // Active clause: tracks which clause was clicked → drives PDF scroll + highlight
+  const [activeClause, setActiveClause] = useState<ClauseResult | null>(null);
 
   // ── Color map ──────────────────────────────────────────────────────────
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
@@ -198,6 +200,7 @@ export default function Home() {
   };
 
   const resetAnalysis = () => {
+    setActiveClause(null);
     setFile(null);
     setResult(null);
     setError(null);
@@ -236,15 +239,22 @@ export default function Home() {
       setSelectedUnknownClause(clause);
       setShowRenameModal(true);
     } else {
+      // Set active clause → triggers PDF scroll + strong yellow highlight
+      setActiveClause(clause);
+      // Also set highlighted text for DOCX <mark> rendering + search indicator
       setHighlightedText(clause.span);
-      setTimeout(() => {
-        const marks = document.querySelectorAll("mark");
-        marks.forEach((mark) => {
-          if (mark.textContent?.includes(clause.span.substring(0, 50))) {
-            mark.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        });
-      }, 100);
+
+      // DOCX: scroll to the <mark> element
+      if (fileType !== "pdf") {
+        setTimeout(() => {
+          const marks = document.querySelectorAll("mark");
+          marks.forEach((mark) => {
+            if (mark.textContent?.includes(clause.span.substring(0, 50))) {
+              mark.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          });
+        }, 100);
+      }
     }
   };
 
@@ -345,6 +355,7 @@ export default function Home() {
               selectedClauseTypes={selectedClauseTypes}
               minConfidence={minConfidence}
               highlightedText={highlightedText}
+              activeClause={activeClause}
               documentText={documentText}
               isClient={isClient}
               onReset={resetAnalysis}
@@ -357,6 +368,7 @@ export default function Home() {
               minConfidence={minConfidence}
               searchTerm={searchTerm}
               highlightedText={highlightedText}
+              activeClause={activeClause}
               showFilters={showFilters}
               onToggleFilters={() => setShowFilters(!showFilters)}
               onToggleType={handleToggleType}

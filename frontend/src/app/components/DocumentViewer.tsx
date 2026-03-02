@@ -1,4 +1,4 @@
-import { Eye, CheckCircle, Loader2 } from "lucide-react";
+import { Eye, CheckCircle } from "lucide-react";
 import { ClauseResult, PageTextContent } from "../types";
 import PdfViewer from "./PdfViewer";
 import DocxViewer from "./DocxViewer";
@@ -15,6 +15,7 @@ type Props = {
   selectedClauseTypes: Set<string>;
   minConfidence: number;
   highlightedText: string;
+  activeClause: ClauseResult | null;
   documentText: string;
   isClient: boolean;
   onReset: () => void;
@@ -33,6 +34,7 @@ export default function DocumentViewer({
   selectedClauseTypes,
   minConfidence,
   highlightedText,
+  activeClause,
   documentText,
   isClient,
   onReset,
@@ -97,6 +99,7 @@ export default function DocumentViewer({
             selectedClauseTypes={selectedClauseTypes}
             minConfidence={minConfidence}
             highlightedText={highlightedText}
+            activeClause={activeClause}
             isClient={isClient}
             onDocumentLoadSuccess={onDocumentLoadSuccess}
           />

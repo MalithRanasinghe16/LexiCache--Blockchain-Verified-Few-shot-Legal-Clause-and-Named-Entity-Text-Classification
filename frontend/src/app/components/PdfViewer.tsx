@@ -5,7 +5,6 @@ import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { ClauseResult, PageTextContent, TextItem } from "../types";
 
-// Dynamically import react-pdf (client-side only)
 const Document = dynamic(
   () => import("react-pdf").then((mod) => mod.Document),
   { ssr: false },
@@ -30,6 +29,7 @@ type Props = {
   selectedClauseTypes: Set<string>;
   minConfidence: number;
   highlightedText: string;
+  activeClause: ClauseResult | null;
   isClient: boolean;
   onDocumentLoadSuccess: (data: { numPages: number }) => void;
 };
@@ -45,10 +45,13 @@ export default function PdfViewer({
   selectedClauseTypes,
   minConfidence,
   highlightedText,
+  activeClause,
   isClient,
   onDocumentLoadSuccess,
 }: Props) {
   const canvasRefs = useRef<HTMLCanvasElement[]>([]);
+  // Refs to each page container div for scrolling
+  const pageContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Convert any color to rgba with given opacity
   const colorWithOpacity = useCallback(
@@ -72,7 +75,7 @@ export default function PdfViewer({
     [],
   );
 
-  // Find text positions for a given span in the page
+  // Find text positions for a given span in a page
   const findTextPositions = useCallback(
     (
       span: string,
@@ -205,7 +208,30 @@ export default function PdfViewer({
     [pageWidth],
   );
 
-  // Draw clause highlights on canvas
+  // ── Auto-scroll to the page containing the active clause ───────────────
+  useEffect(() => {
+    if (!activeClause || pageTextContents.length === 0) return;
+
+    // Find the first page where the active clause text appears
+    for (let i = 0; i < pageTextContents.length; i++) {
+      const positions = findTextPositions(
+        activeClause.span,
+        pageTextContents[i],
+      );
+      if (positions.length > 0) {
+        // Delay slightly so canvas highlights are drawn first
+        setTimeout(() => {
+          pageContainerRefs.current[i]?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }, 350);
+        break;
+      }
+    }
+  }, [activeClause, pageTextContents, findTextPositions]);
+
+  // ── Draw clause + active + search highlights on canvas ────────────────
   const drawHighlights = useCallback(() => {
     if (!result?.result || pageTextContents.length === 0) return;
 
@@ -220,6 +246,7 @@ export default function PdfViewer({
         canvas.height = pageHeights[pageIndex] || 1100;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        // Pass 1: Draw all regular clause highlights (coloured, 30% opacity)
         result.result.forEach((clause: ClauseResult) => {
           if (!selectedClauseTypes.has(clause.clause_type)) return;
           if (
@@ -227,6 +254,8 @@ export default function PdfViewer({
             clause.confidence < minConfidence / 100
           )
             return;
+          // Skip active clause — drawn separately below with stronger style
+          if (activeClause && clause.span === activeClause.span) return;
 
           const color =
             clause.clause_type === "Unknown clause"
@@ -242,7 +271,25 @@ export default function PdfViewer({
           });
         });
 
-        if (highlightedText) {
+        // Pass 2: Draw the ACTIVE (selected) clause with a strong yellow highlight
+        if (activeClause) {
+          const positions = findTextPositions(activeClause.span, pageContent);
+          positions.forEach((pos) => {
+            // Bright yellow fill
+            ctx.fillStyle = "rgba(253, 224, 71, 0.65)";
+            ctx.fillRect(pos.x - 2, pos.y - 2, pos.width + 4, pos.height + 4);
+            // Bold amber border
+            ctx.strokeStyle = "#d97706";
+            ctx.lineWidth = 2.5;
+            ctx.strokeRect(pos.x - 2, pos.y - 2, pos.width + 4, pos.height + 4);
+          });
+        }
+
+        // Pass 3: Search highlight (if from search bar, not clause click)
+        if (
+          highlightedText &&
+          (!activeClause || highlightedText !== activeClause.span)
+        ) {
           const positions = findTextPositions(
             highlightedText,
             pageContent,
@@ -266,6 +313,7 @@ export default function PdfViewer({
     pageHeights,
     findTextPositions,
     highlightedText,
+    activeClause,
     selectedClauseTypes,
     minConfidence,
     colorWithOpacity,
@@ -301,7 +349,13 @@ export default function PdfViewer({
       }
     >
       {Array.from(new Array(numPages), (_, index) => (
-        <div key={index} className="relative mb-4">
+        <div
+          key={index}
+          className="relative mb-4"
+          ref={(el) => {
+            pageContainerRefs.current[index] = el;
+          }}
+        >
           <Page
             pageNumber={index + 1}
             width={pageWidth}
