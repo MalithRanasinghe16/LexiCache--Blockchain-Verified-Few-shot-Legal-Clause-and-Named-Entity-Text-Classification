@@ -132,10 +132,60 @@ class LexiCacheModel:
         print(f"  Known CUAD types: {len(CLAUSE_KEYWORDS)}")
         print(f"  Learned custom types: {len(self.learned_types)}")
 
+    def _is_heading(self, text: str) -> bool:
+        """
+        Detect if a segment is likely a heading/subheading/title.
+        Returns True if it's a heading (should NOT be classified as a clause).
+        """
+        text_stripped = text.strip()
+        
+        # Too short to be a real clause
+        if len(text_stripped) < 15:
+            return True
+        
+        # Too long to be a heading (headings are usually concise)
+        if len(text_stripped) > 200:
+            return False
+        
+        # Common heading patterns
+        heading_patterns = [
+            r'^(ARTICLE|SECTION|CHAPTER|PART)\s+[IVXLCDM\d]+',  # ARTICLE IV, SECTION 2.1
+            r'^\d+\.\d*\s*[A-Z][a-z]',  # 2.1 Title, 3. Title
+            r'^[IVXLCDM]+\.\s*[A-Z]',  # IV. Title
+            r'^\([a-z0-9]+\)\s*[A-Z]',  # (a) Title, (1) Title
+            r'^[A-Z][A-Z\s]{3,}$',  # ALL CAPS HEADING (at least 4 chars)
+            r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*:?$',  # Title Case Heading
+        ]
+        
+        for pattern in heading_patterns:
+            if re.match(pattern, text_stripped):
+                return True
+        
+        # Check if it ends with colon (often a heading)
+        if text_stripped.endswith(':'):
+            return True
+        
+        # Check capitalization ratio (>70% caps suggests heading)
+        alpha_chars = [c for c in text_stripped if c.isalpha()]
+        if alpha_chars:
+            caps_ratio = sum(1 for c in alpha_chars if c.isupper()) / len(alpha_chars)
+            if caps_ratio > 0.7:
+                return True
+        
+        # Check if it's very short with no punctuation (likely heading)
+        has_sentence_ending = any(text_stripped.endswith(p) for p in ['.', '!', '?', ';'])
+        if len(text_stripped) < 60 and not has_sentence_ending:
+            # Could be heading, check if it starts with capital
+            if text_stripped[0].isupper() and text_stripped.count(' ') < 8:
+                return True
+        
+        return False
+    
     def _segment_contract(self, text: str) -> List[Dict]:
         """
         Segment contract text into individual clauses/paragraphs.
-        Returns list of {text, start_idx, end_idx}
+        Filters out headings, subheadings, and titles.
+        Returns list of {text, start_idx, end_idx, is_heading}
         """
         segments = []
         
@@ -146,6 +196,13 @@ class LexiCacheModel:
         for para in paragraphs:
             para = para.strip()
             if len(para) < 30:  # Skip very short segments
+                current_pos = text.find(para, current_pos) + len(para)
+                continue
+            
+            # Check if this is a heading BEFORE adding it
+            is_heading = self._is_heading(para)
+            if is_heading:
+                # Skip headings - don't classify them as clauses
                 current_pos = text.find(para, current_pos) + len(para)
                 continue
                 
@@ -159,9 +216,11 @@ class LexiCacheModel:
                 sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', para)
                 sent_pos = start_idx
                 for sent in sentences:
-                    if len(sent.strip()) >= 30:
+                    sent_stripped = sent.strip()
+                    # Don't add if it's a heading
+                    if len(sent_stripped) >= 30 and not self._is_heading(sent_stripped):
                         segments.append({
-                            'text': sent.strip(),
+                            'text': sent_stripped,
                             'start_idx': sent_pos,
                             'end_idx': sent_pos + len(sent)
                         })

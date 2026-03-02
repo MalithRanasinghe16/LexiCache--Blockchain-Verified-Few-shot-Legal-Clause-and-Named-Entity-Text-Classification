@@ -64,28 +64,59 @@ async def predict_text(request: TextRequest):
 
 @app.post("/upload-file")
 async def upload_file(file: UploadFile = File(...)):
-    """Upload PDF/DOCX → extract text → predict"""
+    """Upload PDF/DOCX → extract text → predict with page tracking"""
     if not file.filename.lower().endswith(('.pdf', '.doc', '.docx')):
         raise HTTPException(status_code=400, detail="Only PDF, DOC, DOCX allowed")
 
     content = await file.read()
 
     try:
+        page_texts = []  # Track text per page for position mapping
+        
         if file.filename.lower().endswith('.pdf'):
             doc = fitz.open(stream=content, filetype="pdf")
             text = ""
-            for page in doc:
-                text += page.get_text() + "\n"
+            for page_num, page in enumerate(doc, start=1):
+                page_text = page.get_text()
+                page_texts.append({
+                    'page': page_num,
+                    'text': page_text,
+                    'start_char': len(text),
+                    'end_char': len(text) + len(page_text)
+                })
+                text += page_text + "\n"
             doc.close()
         else:
             doc = Document(content)
             text = "\n".join([p.text for p in doc.paragraphs])
+            # For DOCX, treat as single page
+            page_texts.append({
+                'page': 1,
+                'text': text,
+                'start_char': 0,
+                'end_char': len(text)
+            })
 
-        result = model.predict_cuad(text[:4000])  # limit length for demo
+        # Analyze full document (remove 4000 char limit for production)
+        result = model.predict_cuad(text)
+        
+        # Add page numbers to each clause
+        for clause in result:
+            clause_start = clause.get('start_idx', 0)
+            # Find which page this clause is on
+            for page_info in page_texts:
+                if page_info['start_char'] <= clause_start < page_info['end_char']:
+                    clause['page_number'] = page_info['page']
+                    break
+            if 'page_number' not in clause:
+                clause['page_number'] = 1  # Default to page 1
+        
         return {
             "status": "success", 
             "extracted_text": text,  # Full text for highlighting
-            "extracted_text_preview": text[:500] + "..." if len(text) > 500 else text, 
+            "extracted_text_preview": text[:500] + "..." if len(text) > 500 else text,
+            "page_count": len(page_texts),
+            "page_texts": page_texts,  # For frontend text position mapping
             "result": result,
             "file_type": "pdf" if file.filename.lower().endswith('.pdf') else "docx"
         }
