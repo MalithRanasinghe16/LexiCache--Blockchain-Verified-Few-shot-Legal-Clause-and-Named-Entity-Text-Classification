@@ -32,6 +32,16 @@ class FeedbackRequest(BaseModel):
     original_prediction: str = None
     confidence: float = None
 
+class RenameUnknownRequest(BaseModel):
+    contract_text: str  # Full contract text for re-classification
+    unknown_span: str   # The span text that was marked as Unknown
+    new_type_name: str  # User's name for this clause type
+    color: str = None   # Optional: user-chosen color (hex)
+
+class UpdateColorRequest(BaseModel):
+    clause_type: str
+    color: str  # Hex color code
+
 @app.get("/")
 async def root():
     """API root - system info"""
@@ -144,3 +154,83 @@ async def get_clause_types():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/clause-types-with-colors")
+async def get_clause_types_with_colors():
+    """Get all clause types with their assigned colors for legend"""
+    try:
+        types_colors = model.get_all_clause_types_with_colors()
+        return {
+            "status": "success",
+            "clause_types": types_colors
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/rename-unknown")
+async def rename_unknown_clause(request: RenameUnknownRequest):
+    """
+    Rename an 'Unknown clause' to a user-defined type and re-classify.
+    This teaches the model the new clause type.
+    
+    Example:
+    {
+        "contract_text": "...full contract text...",
+        "unknown_span": "The parties agree to escrow...",
+        "new_type_name": "Escrow Provision",
+        "color": "#FF5733"
+    }
+    """
+    try:
+        # Teach the model
+        success = model.learn_from_feedback(
+            clause_text=request.unknown_span,
+            correct_label=request.new_type_name,
+            color=request.color
+        )
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to learn new clause type")
+        
+        # Re-classify the contract with new knowledge
+        updated_results = model.predict_cuad(request.contract_text)
+        stats = model.get_statistics()
+        
+        return {
+            "status": "success",
+            "message": f"Successfully learned '{request.new_type_name}'",
+            "updated_results": updated_results,
+            "model_stats": stats
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Rename operation failed: {str(e)}")
+
+@app.post("/update-color")
+async def update_clause_color(request: UpdateColorRequest):
+    """
+    Update the color for a specific clause type.
+    
+    Example:
+    {
+        "clause_type": "Termination",
+        "color": "#FF5733"
+    }
+    """
+    try:
+        success = model.update_clause_color(request.clause_type, request.color)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Updated color for '{request.clause_type}'"
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update color")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Color update failed: {str(e)}")

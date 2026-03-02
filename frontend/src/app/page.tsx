@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
+import dynamic from "next/dynamic";
 import {
   Palette,
   Upload,
@@ -17,7 +15,20 @@ import {
   X,
 } from "lucide-react";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Dynamically import react-pdf components (client-side only)
+const Document = dynamic(
+  () => import("react-pdf").then((mod) => mod.Document),
+  { ssr: false },
+);
+const Page = dynamic(() => import("react-pdf").then((mod) => mod.Page), {
+  ssr: false,
+});
+
+// Import styles only on client side
+if (typeof window !== "undefined") {
+  import("react-pdf/dist/Page/AnnotationLayer.css");
+  import("react-pdf/dist/Page/TextLayer.css");
+}
 
 type ClauseResult = {
   clause_type: string;
@@ -65,6 +76,31 @@ export default function Home() {
   // Color map for clauses - will be populated with random colors
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
 
+  // Unknown clause modal state
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [selectedUnknownClause, setSelectedUnknownClause] =
+    useState<ClauseResult | null>(null);
+  const [newClauseTypeName, setNewClauseTypeName] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // Ensure we're on the client side
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Configure PDF.js worker (client-side only)
+  useEffect(() => {
+    const configurePdfWorker = async () => {
+      if (typeof window !== "undefined") {
+        const pdfjs = await import("react-pdf").then((mod) => mod.pdfjs);
+        // Use legacy build for Node.js compatibility
+        pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
+      }
+    };
+    configurePdfWorker();
+  }, []);
+
   // Generate a random visible color on white background
   const generateRandomColor = useCallback(() => {
     // Generate colors that are visible on white background (darker, saturated colors)
@@ -82,16 +118,19 @@ export default function Home() {
       result.result.forEach((clause: ClauseResult) => {
         types.add(clause.clause_type);
         if (!newColorMap[clause.clause_type]) {
-          newColorMap[clause.clause_type] = generateRandomColor();
+          // Special color for Unknown clause
+          if (clause.clause_type === "Unknown clause") {
+            newColorMap[clause.clause_type] = "#F97316"; // Orange
+          } else {
+            newColorMap[clause.clause_type] = generateRandomColor();
+          }
         }
       });
       setColorMap(newColorMap);
-      // Initialize filter to show all clauses
-      if (selectedClauseTypes.size === 0) {
-        setSelectedClauseTypes(new Set(types));
-      }
+      // Initialize filter to show all clauses (including Unknown)
+      setSelectedClauseTypes(new Set(types));
     }
-  }, [result, generateRandomColor]);
+  }, [result]);
 
   // Convert any color format to rgba with opacity
   const colorWithOpacity = useCallback((color: string, opacity: number) => {
@@ -431,9 +470,19 @@ export default function Home() {
         result.result.forEach((clause: ClauseResult, idx: number) => {
           // Apply filters
           if (!selectedClauseTypes.has(clause.clause_type)) return;
-          if (clause.confidence < minConfidence / 100) return;
 
-          const color = colorMap[clause.clause_type] || "#6b7280";
+          // For Unknown clauses, ignore confidence filter
+          if (
+            clause.clause_type !== "Unknown clause" &&
+            clause.confidence < minConfidence / 100
+          )
+            return;
+
+          const color =
+            clause.clause_type === "Unknown clause"
+              ? "#F97316" // Orange for unknown
+              : colorMap[clause.clause_type] || "#6b7280";
+
           const positions = findTextPositions(clause.span, pageContent);
 
           console.log(
@@ -527,11 +576,17 @@ export default function Home() {
   // Get filtered clauses for display
   const getFilteredClauses = (): ClauseResult[] => {
     if (!result?.result) return [];
-    return result.result.filter(
-      (clause: ClauseResult) =>
+    return result.result.filter((clause: ClauseResult) => {
+      // Always show Unknown clauses if they're in the selected types (ignore confidence)
+      if (clause.clause_type === "Unknown clause") {
+        return selectedClauseTypes.has(clause.clause_type);
+      }
+      // For other clauses, apply both filters
+      return (
         selectedClauseTypes.has(clause.clause_type) &&
-        clause.confidence >= minConfidence / 100,
-    );
+        clause.confidence >= minConfidence / 100
+      );
+    });
   };
 
   // Render highlighted text for DOC/DOCX files
@@ -561,27 +616,42 @@ export default function Home() {
       const index = normalizedDocText.indexOf(searchText);
 
       if (index !== -1) {
+        const clauseColor =
+          clause.clause_type === "Unknown clause"
+            ? "#F97316" // Orange for unknown
+            : colorMap[clause.clause_type] || "#6b7280";
+
         clausePositions.push({
           start: index,
           end: index + searchText.length,
-          color: colorMap[clause.clause_type] || "#6b7280",
+          color: clauseColor,
           clauseType: clause.clause_type,
         });
       }
     });
 
-    // Also highlight search term if present
+    // Also highlight search term or clicked clause if present
     if (highlightedText) {
-      const searchIndex = documentText
-        .toLowerCase()
-        .indexOf(highlightedText.toLowerCase());
+      const normalizedDocText = documentText.toLowerCase();
+      const normalizedHighlight = highlightedText.toLowerCase();
+      const searchLength = Math.min(normalizedHighlight.length, 200);
+      const searchText = normalizedHighlight.substring(0, searchLength);
+      const searchIndex = normalizedDocText.indexOf(searchText);
+
       if (searchIndex !== -1) {
-        clausePositions.push({
-          start: searchIndex,
-          end: searchIndex + highlightedText.length,
-          color: "#fbbf24",
-          clauseType: "Search Result",
-        });
+        // Check if this clause is already highlighted by a filter
+        const alreadyHighlighted = clausePositions.some(
+          (pos) => searchIndex >= pos.start && searchIndex < pos.end,
+        );
+
+        if (!alreadyHighlighted) {
+          clausePositions.push({
+            start: searchIndex,
+            end: searchIndex + searchText.length,
+            color: "#fbbf24", // Yellow for search/clicked items
+            clauseType: "Selected Clause",
+          });
+        }
       }
     }
 
@@ -642,12 +712,100 @@ export default function Home() {
     return Array.from(types);
   };
 
+  // Count unknown clauses
+  const getUnknownCount = (): number => {
+    if (!result?.result) return 0;
+    return result.result.filter(
+      (c: ClauseResult) => c.clause_type === "Unknown clause",
+    ).length;
+  };
+
+  // Handle renaming Unknown clause to user-defined type
+  const handleRenameUnknown = async () => {
+    if (!selectedUnknownClause || !newClauseTypeName.trim()) {
+      return;
+    }
+
+    setIsRenaming(true);
+
+    try {
+      const res = await fetch("http://localhost:8000/rename-unknown", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contract_text: documentText,
+          unknown_span: selectedUnknownClause.span,
+          new_type_name: newClauseTypeName.trim(),
+          color: colorMap[newClauseTypeName.trim()] || generateRandomColor(),
+        }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail || `Rename failed with status ${res.status}`,
+        );
+      }
+
+      const data = await res.json();
+
+      // Update results with new classification
+      if (data.updated_results) {
+        setResult({
+          ...result,
+          result: data.updated_results,
+        });
+
+        // Generate color for new type if not already set
+        const newColor =
+          colorMap[newClauseTypeName.trim()] || generateRandomColor();
+        setColorMap((prev) => ({
+          ...prev,
+          [newClauseTypeName.trim()]: newColor,
+        }));
+      }
+
+      // Close modal and reset
+      setShowRenameModal(false);
+      setSelectedUnknownClause(null);
+      setNewClauseTypeName("");
+    } catch (err: any) {
+      alert(`Failed to rename clause: ${err.message}`);
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  // Handle clicking on a clause - if Unknown, open rename modal
+  const handleClauseClick = (clause: ClauseResult) => {
+    if (clause.clause_type === "Unknown clause") {
+      setSelectedUnknownClause(clause);
+      setShowRenameModal(true);
+    } else {
+      // Highlight the clause and scroll to it
+      setHighlightedText(clause.span);
+
+      // Scroll to the highlighted text after a brief delay
+      setTimeout(() => {
+        const marks = document.querySelectorAll("mark");
+        marks.forEach((mark) => {
+          if (mark.textContent?.includes(clause.span.substring(0, 50))) {
+            mark.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+      }, 100);
+    }
+  };
+
   // Handle PDF document load
   const onDocumentLoadSuccess = async ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
 
     // Load the PDF document for text extraction
-    if (file) {
+    if (file && typeof window !== "undefined") {
+      const pdfjs = await import("react-pdf").then((mod) => mod.pdfjs);
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
       setPdfDocument(pdf);
@@ -709,7 +867,7 @@ export default function Home() {
                 {/* Error Display */}
                 {error && (
                   <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
-                    <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                    <AlertCircle className="w-5 h-5 shrink-0" />
                     <span>{error}</span>
                   </div>
                 )}
@@ -757,15 +915,25 @@ export default function Home() {
 
               {/* Success Banner */}
               <div className="flex items-center gap-3 p-4 mb-4 bg-green-50 border border-green-200 rounded-xl text-green-700">
-                <CheckCircle className="w-5 h-5 flex-shrink-0" />
-                <span>
-                  Found <strong>{result.result?.length || 0}</strong> clause(s),
-                  showing <strong>{getFilteredClauses().length}</strong>
-                </span>
+                <CheckCircle className="w-5 h-5 shrink-0" />
+                <div>
+                  <span>
+                    Found <strong>{result.result?.length || 0}</strong>{" "}
+                    clause(s), showing{" "}
+                    <strong>{getFilteredClauses().length}</strong>
+                  </span>
+                  {getUnknownCount() > 0 && (
+                    <div className="text-xs text-orange-600 mt-1">
+                      💡 <strong>{getUnknownCount()}</strong> unknown clause
+                      {getUnknownCount() > 1 ? "s" : ""} - click to teach the
+                      system!
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="border border-gray-200 rounded-2xl overflow-hidden bg-gray-50 max-h-[70vh] overflow-y-auto">
-                {fileType === "pdf" ? (
+                {fileType === "pdf" && isClient ? (
                   /* PDF Viewer with Canvas Highlighting */
                   <Document
                     file={file}
@@ -808,6 +976,14 @@ export default function Home() {
                       </div>
                     ))}
                   </Document>
+                ) : fileType === "pdf" && !isClient ? (
+                  /* Loading state during SSR */
+                  <div className="p-12 text-center flex items-center justify-center gap-3">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                    <span className="text-gray-600">
+                      Initializing PDF viewer...
+                    </span>
+                  </div>
                 ) : (
                   /* Text Viewer with HTML Highlighting for DOC/DOCX */
                   <div className="bg-white p-8 shadow-sm">
@@ -828,7 +1004,16 @@ export default function Home() {
               {/* Detected Clauses with Filters */}
               <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-lg text-black">Detected Clauses</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-lg text-black">
+                      Detected Clauses
+                    </h3>
+                    {getUnknownCount() > 0 && (
+                      <span className="px-2 py-1 text-xs font-semibold bg-orange-100 text-orange-700 rounded-full">
+                        {getUnknownCount()} Unknown
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={() => setShowFilters(!showFilters)}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-lg transition"
@@ -930,23 +1115,36 @@ export default function Home() {
                       (clause: ClauseResult, idx: number) => (
                         <div
                           key={idx}
-                          className="p-4 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 transition cursor-pointer"
-                          onClick={() => setHighlightedText(clause.span)}
+                          className={`p-4 rounded-xl border transition cursor-pointer ${
+                            clause.clause_type === "Unknown clause"
+                              ? "border-orange-300 bg-orange-50 hover:bg-orange-100"
+                              : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                          }`}
+                          onClick={() => handleClauseClick(clause)}
                         >
                           <div className="flex items-center gap-2 mb-2">
                             <div
                               className="w-4 h-4 rounded-full shadow-sm"
                               style={{
                                 backgroundColor:
-                                  colorMap[clause.clause_type] || "#6b7280",
+                                  clause.clause_type === "Unknown clause"
+                                    ? "#F97316"
+                                    : colorMap[clause.clause_type] || "#6b7280",
                               }}
                             />
                             <span className="font-medium">
                               {clause.clause_type}
                             </span>
-                            <span className="ml-auto text-sm text-black">
-                              {(clause.confidence * 100).toFixed(1)}%
-                            </span>
+                            {clause.clause_type === "Unknown clause" && (
+                              <span className="ml-auto text-xs text-orange-600 font-semibold">
+                                Click to teach →
+                              </span>
+                            )}
+                            {clause.clause_type !== "Unknown clause" && (
+                              <span className="ml-auto text-sm text-black">
+                                {(clause.confidence * 100).toFixed(1)}%
+                              </span>
+                            )}
                           </div>
                           <p className="text-sm text-black line-clamp-2">
                             {clause.span}
@@ -979,15 +1177,32 @@ export default function Home() {
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   {getClauseTypes().map((clause) => (
-                    <div key={clause} className="flex items-center gap-3 text-black">
+                    <div
+                      key={clause}
+                      className="flex items-center gap-3 text-black"
+                    >
                       <div className="flex gap-1">
                         <div
-                          className="w-8 h-8 rounded-lg border shadow-sm cursor-pointer hover:scale-110 transition"
+                          className={`w-8 h-8 rounded-lg border shadow-sm transition ${
+                            clause === "Unknown clause"
+                              ? "border-orange-400"
+                              : "cursor-pointer hover:scale-110"
+                          }`}
                           style={{
-                            backgroundColor: colorMap[clause] || "#6b7280",
+                            backgroundColor:
+                              clause === "Unknown clause"
+                                ? "#F97316"
+                                : colorMap[clause] || "#6b7280",
                           }}
-                          title="Click to change color"
+                          title={
+                            clause === "Unknown clause"
+                              ? "Unknown clause (click items to teach)"
+                              : "Click to change color"
+                          }
                           onClick={() => {
+                            // Don't allow color change for Unknown clause
+                            if (clause === "Unknown clause") return;
+
                             const input = document.createElement("input");
                             input.type = "color";
                             input.value = colorMap[clause] || "#6b7280";
@@ -1000,20 +1215,12 @@ export default function Home() {
                             input.click();
                           }}
                         />
-                        {/* <button
-                          className="w-6 h-8 rounded border bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-xs transition"
-                          title="Generate new random color"
-                          onClick={() => {
-                            setColorMap((prev) => ({
-                              ...prev,
-                              [clause]: generateRandomColor(),
-                            }));
-                          }}
-                        >
-                        </button> */}
                       </div>
-                      <span className="text-sm font-medium truncate text-black">
+                      <span className="text-sm font-medium truncate text-black flex items-center gap-1">
                         {clause}
+                        {clause === "Unknown clause" && (
+                          <span className="text-xs text-orange-600">📚</span>
+                        )}
                       </span>
                     </div>
                   ))}
@@ -1022,7 +1229,12 @@ export default function Home() {
                   onClick={() => {
                     const newColorMap: Record<string, string> = {};
                     getClauseTypes().forEach((type) => {
-                      newColorMap[type] = generateRandomColor();
+                      // Keep Unknown clause color fixed
+                      if (type === "Unknown clause") {
+                        newColorMap[type] = "#F97316";
+                      } else {
+                        newColorMap[type] = generateRandomColor();
+                      }
                     });
                     setColorMap(newColorMap);
                   }}
@@ -1033,7 +1245,7 @@ export default function Home() {
               </div>
 
               {/* Search Bar */}
-              <div >
+              <div>
                 <h3 className="font-semibold mb-4 flex items-center gap-2 text-black">
                   <Search className="w-5 h-5 text-black" /> Search in Document
                 </h3>
@@ -1061,6 +1273,104 @@ export default function Home() {
                     </span>
                   </p>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rename Unknown Clause Modal */}
+        {showRenameModal && selectedUnknownClause && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    🎓 Teach the System
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setShowRenameModal(false);
+                      setSelectedUnknownClause(null);
+                      setNewClauseTypeName("");
+                    }}
+                    className="text-gray-400 hover:text-gray-600 transition"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                </div>
+
+                <div className="mb-6">
+                  <p className="text-gray-600 mb-4">
+                    The system found a clause it doesn't recognize. Help it
+                    learn by naming this clause type!
+                  </p>
+
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
+                    <p className="text-sm font-semibold text-orange-800 mb-2">
+                      Unknown Clause Text:
+                    </p>
+                    <p className="text-sm text-gray-700 italic max-h-40 overflow-y-auto">
+                      "{selectedUnknownClause.span}"
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      What kind of clause is this?
+                    </label>
+                    <input
+                      type="text"
+                      value={newClauseTypeName}
+                      onChange={(e) => setNewClauseTypeName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newClauseTypeName.trim()) {
+                          handleRenameUnknown();
+                        }
+                      }}
+                      placeholder="e.g., Escrow Provision, Audit Rights, etc."
+                      className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-gray-900"
+                      autoFocus
+                    />
+                    <p className="text-xs text-gray-500 mt-2">
+                      💡 Examples: "Confidentiality", "Payment Terms",
+                      "Liability Waiver"
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setShowRenameModal(false);
+                      setSelectedUnknownClause(null);
+                      setNewClauseTypeName("");
+                    }}
+                    className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRenameUnknown}
+                    disabled={!newClauseTypeName.trim() || isRenaming}
+                    className={`flex-1 px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${
+                      !newClauseTypeName.trim() || isRenaming
+                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                        : "bg-blue-600 text-white hover:bg-blue-700"
+                    }`}
+                  >
+                    {isRenaming ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Teaching...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-5 h-5" />
+                        Teach & Re-classify
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

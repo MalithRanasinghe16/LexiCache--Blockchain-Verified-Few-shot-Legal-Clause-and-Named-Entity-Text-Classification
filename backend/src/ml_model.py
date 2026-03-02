@@ -96,7 +96,8 @@ CLAUSE_KEYWORDS = {
 }
 
 class LexiCacheModel:
-    def __init__(self, projection_path="final_projection_head.pth", support_set_path="support_set.pkl"):
+    def __init__(self, projection_path="final_projection_head.pth", support_set_path="support_set.pkl", 
+                 knowledge_path="clause_knowledge.json"):
         print("[LexiCacheModel] Loading adaptive meta-learning model...")
         self.model = PrototypicalNetwork()
         self.projection = nn.Linear(self.model.hidden_size, self.model.hidden_size).to(self.model.device)
@@ -109,19 +110,26 @@ class LexiCacheModel:
         self.label_to_id = {}             # map string label → local id
         self.next_label_id = 0
         self.support_set_path = support_set_path
+        self.knowledge_path = knowledge_path
         
-        # Confidence thresholds
-        self.high_confidence_threshold = 0.75  # Trust model/keywords
-        self.medium_confidence_threshold = 0.55  # Show but mark as uncertain
-        self.low_confidence_threshold = 0.40  # Flag as unknown, ask user
+        # Confidence thresholds (aligned with dual-path requirement)
+        self.keyword_high_threshold = 0.75  # Path A: Trust keyword matching
+        self.model_high_threshold = 0.70    # Path B: Trust model prediction
+        self.unknown_threshold = 0.60       # Below this = Unknown clause
         
-        # Load persistent support set if exists
+        # Persistent knowledge base: learned types, colors, examples
+        self.learned_types = {}  # {type_name: {color: str, examples: [str], count: int}}
+        self.clause_colors = {}  # {clause_type: color_hex}
+        
+        # Load persistent data
         self._load_support_set()
+        self._load_knowledge_base()
 
         print(f"[LexiCacheModel] Adaptive model ready. Unknown clause detection enabled.")
         print(f"  Device: {self.model.device}")
         print(f"  Support set size: {len(self.support_embeddings)} examples")
-        print(f"  Known clause types: {len(CLAUSE_KEYWORDS)} (CUAD standard)")
+        print(f"  Known CUAD types: {len(CLAUSE_KEYWORDS)}")
+        print(f"  Learned custom types: {len(self.learned_types)}")
 
     def _segment_contract(self, text: str) -> List[Dict]:
         """
@@ -184,19 +192,28 @@ class LexiCacheModel:
                 best_score = score
                 best_match = clause_type
         
-        if best_match and best_score >= 1:
+        # Require at least 2 keyword matches for confident classification
+        # Single keyword match is too weak and could be coincidental
+        if best_match and best_score >= 2:
             # Confidence based on number of keyword matches
-            confidence = min(0.95, 0.60 + (best_score * 0.10))
+            confidence = min(0.95, 0.55 + (best_score * 0.10))
             return best_match, confidence
+        elif best_match and best_score == 1:
+            # Single keyword match - very low confidence
+            return best_match, 0.45
         
         return None, 0.0
 
     def _classify_segment(self, segment_text: str) -> Dict:
         """
-        Classify a single text segment using hybrid approach:
-        1. Keyword heuristics (fast, interpretable)
-        2. Few-shot model (learned from user feedback)
-        3. Flag low-confidence as unknown for user feedback
+        DUAL-PATH CLASSIFICATION:
+        Path A: Keyword/heuristic matching (fast, rule-based)
+        Path B: Model-based few-shot (learned from feedback)
+        
+        Decision rule:
+        - If Path A confidence ≥ 0.75 → use it
+        - Else if Path B confidence ≥ 0.70 → use it  
+        - Else → mark as "Unknown clause"
         """
         normalized = normalize_text(segment_text)
         
@@ -205,10 +222,10 @@ class LexiCacheModel:
             emb = self.model([normalized], batch_size=1)
             proj = self.projection(emb.to(self.model.device))
         
-        # Strategy 1: Try keyword-based classification (fast and interpretable)
+        # PATH A: Keyword-based classification (fast, interpretable)
         kw_type, kw_conf = self._classify_by_keywords(segment_text)
         
-        # Strategy 2: If we have a support set, use meta-learned model
+        # PATH B: Model-based few-shot classification
         model_type, model_conf = None, 0.0
         if len(self.support_embeddings) > 0:
             support_emb = torch.stack(self.support_embeddings).to(self.model.device)
@@ -220,39 +237,36 @@ class LexiCacheModel:
             model_conf = max(0.0, 1.0 - (min_dist / 2.0))  # Normalize distance to confidence
             model_type = self.support_labels[pred_idx]
         
-        # Decision logic: Choose best prediction
+        # DECISION RULE: Apply thresholds per requirements
         final_type = None
         final_conf = 0.0
         source = 'unknown'
         
-        # Prefer model if it's confident and exists
-        if model_type and model_conf >= self.medium_confidence_threshold:
-            if model_conf > kw_conf:
-                final_type = model_type
-                final_conf = model_conf
-                source = 'model'
-        
-        # Fall back to keywords if model is not confident enough
-        if not final_type and kw_type and kw_conf >= self.medium_confidence_threshold:
+        # Priority 1: Path A (keywords) with high confidence
+        if kw_type and kw_conf >= self.keyword_high_threshold:
             final_type = kw_type
             final_conf = kw_conf
             source = 'keywords'
+        # Priority 2: Path B (model) with high confidence
+        elif model_type and model_conf >= self.model_high_threshold:
+            final_type = model_type
+            final_conf = model_conf
+            source = 'model'
+        # Priority 3: Medium confidence predictions (use but mark uncertain)
+        elif kw_type and kw_conf >= 0.50:
+            final_type = kw_type
+            final_conf = kw_conf
+            source = 'keywords_uncertain'
+        elif model_type and model_conf >= 0.50:
+            final_type = model_type
+            final_conf = model_conf
+            source = 'model_uncertain'
         
-        # If both are low confidence, pick the better one but flag it
+        # If no confident prediction → Unknown clause (special category)
         if not final_type:
-            if model_conf >= kw_conf and model_type:
-                final_type = model_type
-                final_conf = model_conf
-                source = 'model_uncertain'
-            elif kw_type:
-                final_type = kw_type
-                final_conf = kw_conf
-                source = 'keywords_uncertain'
-            else:
-                # True unknown - needs user feedback
-                final_type = 'Unknown Clause'
-                final_conf = 0.40
-                source = 'unknown'
+            final_type = 'Unknown clause'
+            final_conf = 0.45  # Fixed low confidence for unknowns
+            source = 'unknown'
         
         return {
             'clause_type': final_type,
@@ -261,13 +275,14 @@ class LexiCacheModel:
             'embedding': proj  # Store for potential learning
         }
 
-    def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.55) -> List[Dict]:
+    def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.40) -> List[Dict]:
         """
-        Main prediction - extracts and classifies multiple clauses from contract.
-        Returns list of {clause_type, confidence, span}
+        Main prediction - extracts and classifies ALL clauses from contract.
+        NOW INCLUDES "Unknown clause" category for low-confidence segments.
+        Returns ALL detected segments (not just top 15).
         """
         print(f"\n{'='*85}")
-        print("🧠 LEXICACHE MULTI-CLAUSE EXTRACTION")
+        print("🧠 LEXICACHE MULTI-CLAUSE EXTRACTION (with Unknown Detection)")
         print(f"{'='*85}")
         print(f"Contract length: {len(contract_text)} characters")
         
@@ -277,15 +292,20 @@ class LexiCacheModel:
         
         results = []
         seen_types = defaultdict(int)  # Track count of each clause type
+        unknown_count = 0
         
         for seg in segments:
             classification = self._classify_segment(seg['text'])
             
-            # Only include if confidence is above threshold
+            # ALWAYS include segments (even unknowns) - never discard
+            # Only exclude very low confidence noise
             if classification['confidence'] >= confidence_threshold:
-                # Avoid too many duplicates of same type
                 type_key = classification['clause_type']
-                if seen_types[type_key] < 3:  # Allow up to 3 of same type
+                
+                # Allow more unknowns (they need user feedback)
+                max_per_type = 10 if type_key == 'Unknown clause' else 3
+                
+                if seen_types[type_key] < max_per_type:
                     # Clean up the span text for better matching
                     span_text = seg['text'][:300] if len(seg['text']) > 300 else seg['text']
                     span_text = ' '.join(span_text.split())  # Normalize whitespace
@@ -296,8 +316,12 @@ class LexiCacheModel:
                         'span': span_text,
                         'start_idx': seg['start_idx'],
                         'end_idx': seg['end_idx'],
-                        'source': classification.get('source', 'unknown')
+                        'source': classification.get('source', 'unknown'),
+                        'is_unknown': type_key == 'Unknown clause'
                     }
+                    
+                    if type_key == 'Unknown clause':
+                        unknown_count += 1
                     
                     # Store embedding for potential learning (convert to list for JSON serialization)
                     if 'embedding' in classification:
@@ -307,40 +331,31 @@ class LexiCacheModel:
                     results.append(result_dict)
                     seen_types[type_key] += 1
         
-        # Sort by confidence descending
-        results.sort(key=lambda x: x['confidence'], reverse=True)
+        # Sort: Unknown clauses last, then by confidence descending
+        results.sort(key=lambda x: (x['is_unknown'], -x['confidence']))
         
-        # Limit to top 15 most confident clauses (more comprehensive)
-        results = results[:15]
+        # NO LIMIT - return ALL detected clauses (including unknowns)
+        # Frontend will handle display/filtering
         
         # Mark clauses that need user review
-        uncertain_count = 0
+        needs_review_count = 0
         for r in results:
-            if r['confidence'] < self.high_confidence_threshold:
+            if r['is_unknown'] or r['confidence'] < self.model_high_threshold:
                 r['needs_review'] = True
-                uncertain_count += 1
+                needs_review_count += 1
             else:
                 r['needs_review'] = False
         
-        print(f"Identified {len(results)} clauses:")
-        for r in results:
-            confidence_emoji = "🟢" if r['confidence'] >= self.high_confidence_threshold else "🟡" if r['confidence'] >= self.medium_confidence_threshold else "🔴"
-            print(f"  {confidence_emoji} {r['clause_type']}: {r['confidence']*100:.1f}% - \"{r['span'][:50]}...\"")
+        print(f"Identified {len(results)} total clauses:")
+        known_count = len(results) - unknown_count
+        print(f"  ✓ {known_count} known clause types")
+        print(f"  ❓ {unknown_count} unknown clauses (need user teaching)")
         
-        if uncertain_count > 0:
-            print(f"\n  ⚠️  {uncertain_count} clause(s) have uncertain predictions - user feedback recommended")
+        if unknown_count > 0:
+            print(f"\n  💡 Tip: Teach the system by renaming 'Unknown clause' items")
         print(f"{'='*85}\n")
         
-        # If no clauses found, return at least one default
-        if not results:
-            results = [{
-                'clause_type': 'General Contract Terms',
-                'confidence': 0.60,
-                'span': contract_text[:200] + "..." if len(contract_text) > 200 else contract_text,
-                'start_idx': 0,
-                'end_idx': min(200, len(contract_text))
-            }]
-        
+        # Always return results (even if empty - frontend handles it)
         return results
 
     def _load_support_set(self):
@@ -373,14 +388,42 @@ class LexiCacheModel:
         except Exception as e:
             print(f"  ⚠ Failed to save support set: {e}")
     
-    def learn_from_feedback(self, clause_text: str, correct_label: str) -> bool:
+    def _load_knowledge_base(self):
+        """Load learned clause types, colors, and examples from JSON"""
+        if Path(self.knowledge_path).exists():
+            try:
+                with open(self.knowledge_path, 'r') as f:
+                    data = json.load(f)
+                    self.learned_types = data.get('learned_types', {})
+                    self.clause_colors = data.get('clause_colors', {})
+                print(f"  ✓ Loaded {len(self.learned_types)} learned clause types")
+            except Exception as e:
+                print(f"  ⚠ Failed to load knowledge base: {e}")
+    
+    def _save_knowledge_base(self):
+        """Save learned clause types and colors to JSON for multi-user persistence"""
+        try:
+            data = {
+                'learned_types': self.learned_types,
+                'clause_colors': self.clause_colors,
+                'timestamp': datetime.now().isoformat(),
+                'total_learned': len(self.learned_types)
+            }
+            with open(self.knowledge_path, 'w') as f:
+                json.dump(data, f, indent=2)
+            print(f"  ✓ Saved knowledge base ({len(self.learned_types)} types)")
+        except Exception as e:
+            print(f"  ⚠ Failed to save knowledge base: {e}")
+    
+    def learn_from_feedback(self, clause_text: str, correct_label: str, color: str = None) -> bool:
         """
-        Online meta-learning: User provides correct label for a clause.
-        This immediately updates the support set.
+        Online meta-learning: User teaches the system a new clause type.
+        Used when renaming "Unknown clause" → custom type.
         
         Args:
             clause_text: The text of the clause
-            correct_label: The correct clause type (e.g., 'Termination')
+            correct_label: The correct clause type (e.g., 'Escrow Provision')
+            color: Optional hex color for this type (e.g., '#FF5733')
         
         Returns:
             True if learning was successful
@@ -397,19 +440,77 @@ class LexiCacheModel:
             if correct_label not in self.label_to_id:
                 self.label_to_id[correct_label] = self.next_label_id
                 self.next_label_id += 1
+                
+                # Track as new learned type
+                if correct_label not in self.learned_types:
+                    self.learned_types[correct_label] = {
+                        'examples': [],
+                        'count': 0,
+                        'first_learned': datetime.now().isoformat()
+                    }
             
             self.support_embeddings.append(proj.squeeze(0).cpu())
             self.support_labels.append(correct_label)
             
+            # Update learned types tracking
+            self.learned_types[correct_label]['count'] += 1
+            self.learned_types[correct_label]['examples'].append(clause_text[:200])  # Store snippet
+            
+            # Store color if provided
+            if color:
+                self.clause_colors[correct_label] = color
+            
             print(f"  ✓ Learned: '{correct_label}' (support set now has {len(self.support_embeddings)} examples)")
             
-            # Save to disk every 5 new examples
-            if len(self.support_embeddings) % 5 == 0:
-                self._save_support_set()
+            # Save both support set and knowledge base
+            self._save_support_set()
+            self._save_knowledge_base()
             
             return True
         except Exception as e:
             print(f"  ✗ Failed to learn from feedback: {e}")
+            return False
+    
+    def rename_unknown_clause(self, clause_text: str, old_span: str, new_type_name: str, color: str = None) -> Dict:
+        """
+        Rename an "Unknown clause" to a user-defined type.
+        This teaches the model the new clause type.
+        
+        Args:
+            clause_text: Full contract text
+            old_span: The original span text that was marked as Unknown
+            new_type_name: User's name for this clause type
+            color: User-chosen color for this type
+        
+        Returns:
+            Updated classification results
+        """
+        # Teach the model
+        success = self.learn_from_feedback(old_span, new_type_name, color)
+        
+        if success:
+            # Re-classify the entire contract with new knowledge
+            return self.predict_cuad(clause_text)
+        
+        return None
+    
+    def update_clause_color(self, clause_type: str, color: str) -> bool:
+        """
+        Update the color for a specific clause type.
+        
+        Args:
+            clause_type: Name of the clause type
+            color: Hex color code (e.g., '#FF5733')
+        
+        Returns:
+            True if successful
+        """
+        try:
+            self.clause_colors[clause_type] = color
+            self._save_knowledge_base()
+            return True
+        except Exception as e:
+            print(f"  ✗ Failed to update color: {e}")
             return False
     
     def get_statistics(self) -> Dict:
@@ -422,6 +523,32 @@ class LexiCacheModel:
             'total_examples': len(self.support_embeddings),
             'unique_types': len(self.label_to_id),
             'known_cuad_types': len(CLAUSE_KEYWORDS),
+            'learned_custom_types': len(self.learned_types),
             'label_distribution': dict(label_counts),
+            'learned_types_detail': self.learned_types,
+            'clause_colors': self.clause_colors,
             'device': str(self.model.device)
         }
+    
+    def get_all_clause_types_with_colors(self) -> Dict:
+        """
+        Get all known clause types with their assigned colors.
+        Used by frontend to build legend.
+        
+        Returns:
+            {clause_type: color_hex}
+        """
+        all_types = {}
+        
+        # Add CUAD standard types (will get auto-generated colors in frontend if not set)
+        for clause_type in CLAUSE_KEYWORDS.keys():
+            all_types[clause_type] = self.clause_colors.get(clause_type, None)
+        
+        # Add learned custom types
+        for clause_type in self.learned_types.keys():
+            all_types[clause_type] = self.clause_colors.get(clause_type, None)
+        
+        # Special: Unknown clause gets fixed color
+        all_types['Unknown clause'] = self.clause_colors.get('Unknown clause', '#9CA3AF')  # Gray
+        
+        return all_types
