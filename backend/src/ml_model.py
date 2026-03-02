@@ -107,6 +107,7 @@ class LexiCacheModel:
         # Dynamic support set for online meta-learning
         self.support_embeddings = []      # list of embeddings
         self.support_labels = []          # list of clause type names (strings)
+        self.support_texts = []           # list of original text examples
         self.label_to_id = {}             # map string label → local id
         self.next_label_id = 0
         self.support_set_path = support_set_path
@@ -366,6 +367,7 @@ class LexiCacheModel:
                     data = pickle.load(f)
                     self.support_embeddings = data.get('embeddings', [])
                     self.support_labels = data.get('labels', [])
+                    self.support_texts = data.get('texts', [])
                     self.label_to_id = data.get('label_to_id', {})
                     self.next_label_id = data.get('next_label_id', 0)
                 print(f"  ✓ Loaded {len(self.support_embeddings)} examples from persistent storage")
@@ -378,6 +380,7 @@ class LexiCacheModel:
             data = {
                 'embeddings': self.support_embeddings,
                 'labels': self.support_labels,
+                'texts': self.support_texts,
                 'label_to_id': self.label_to_id,
                 'next_label_id': self.next_label_id,
                 'timestamp': datetime.now().isoformat()
@@ -396,6 +399,35 @@ class LexiCacheModel:
                     data = json.load(f)
                     self.learned_types = data.get('learned_types', {})
                     self.clause_colors = data.get('clause_colors', {})
+                    
+                    # Rebuild support set from saved examples for multi-user persistence
+                    learned_examples = data.get('learned_examples', [])
+                    if learned_examples:
+                        print(f"  🔄 Rebuilding support set from {len(learned_examples)} saved examples...")
+                        for example in learned_examples:
+                            clause_type = example['clause_type']
+                            text = example['text']
+                            
+                            # Generate embedding for this example
+                            try:
+                                normalized = normalize_text(text)
+                                with torch.no_grad():
+                                    emb = self.model([normalized], batch_size=1)
+                                    proj = self.projection(emb.to(self.model.device))
+                                
+                                # Add to support set
+                                if clause_type not in self.label_to_id:
+                                    self.label_to_id[clause_type] = self.next_label_id
+                                    self.next_label_id += 1
+                                
+                                self.support_embeddings.append(proj.squeeze(0).cpu())
+                                self.support_labels.append(clause_type)
+                                self.support_texts.append(text)
+                            except Exception as e:
+                                print(f"    ⚠ Failed to rebuild embedding for {clause_type}: {e}")
+                        
+                        print(f"  ✓ Rebuilt support set with {len(self.support_embeddings)} examples")
+                
                 print(f"  ✓ Loaded {len(self.learned_types)} learned clause types")
             except Exception as e:
                 print(f"  ⚠ Failed to load knowledge base: {e}")
@@ -403,15 +435,26 @@ class LexiCacheModel:
     def _save_knowledge_base(self):
         """Save learned clause types and colors to JSON for multi-user persistence"""
         try:
+            # Build list of learned examples (text + type) for rebuilding support set
+            learned_examples = []
+            for i, label in enumerate(self.support_labels):
+                if i < len(self.support_texts):
+                    learned_examples.append({
+                        'clause_type': label,
+                        'text': self.support_texts[i]
+                    })
+            
             data = {
                 'learned_types': self.learned_types,
                 'clause_colors': self.clause_colors,
+                'learned_examples': learned_examples,  # KEY: Save actual examples for rebuilding
                 'timestamp': datetime.now().isoformat(),
-                'total_learned': len(self.learned_types)
+                'total_learned': len(self.learned_types),
+                'total_examples': len(learned_examples)
             }
             with open(self.knowledge_path, 'w') as f:
                 json.dump(data, f, indent=2)
-            print(f"  ✓ Saved knowledge base ({len(self.learned_types)} types)")
+            print(f"  ✓ Saved knowledge base ({len(self.learned_types)} types, {len(learned_examples)} examples)")
         except Exception as e:
             print(f"  ⚠ Failed to save knowledge base: {e}")
     
@@ -451,6 +494,7 @@ class LexiCacheModel:
             
             self.support_embeddings.append(proj.squeeze(0).cpu())
             self.support_labels.append(correct_label)
+            self.support_texts.append(clause_text)  # Store full text for persistence
             
             # Update learned types tracking
             self.learned_types[correct_label]['count'] += 1
