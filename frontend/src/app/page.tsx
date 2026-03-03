@@ -307,6 +307,12 @@ export default function Home() {
           ...prev,
           [newClauseTypeName.trim()]: newColor,
         }));
+        // Ensure the newly named type is visible in the sidebar immediately
+        setSelectedClauseTypes((prev) => {
+          const next = new Set(prev);
+          next.add(newClauseTypeName.trim());
+          return next;
+        });
       }
       setShowRenameModal(false);
       setSelectedUnknownClause(null);

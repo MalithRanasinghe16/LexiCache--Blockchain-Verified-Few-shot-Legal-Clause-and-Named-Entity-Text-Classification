@@ -111,7 +111,22 @@ export default function DocxViewer({
 
     clausePositions.sort((a, b) => a.start - b.start);
 
-    clausePositions.forEach((pos) => {
+    // Deduplicate overlapping ranges — keep the first one (highest priority)
+    const dedupedPositions: typeof clausePositions = [];
+    let lastEnd = 0;
+    for (const pos of clausePositions) {
+      if (pos.start >= lastEnd) {
+        dedupedPositions.push(pos);
+        lastEnd = pos.end;
+      } else if (pos.end > lastEnd) {
+        // Partial overlap — clip the start to lastEnd
+        dedupedPositions.push({ ...pos, start: lastEnd });
+        lastEnd = pos.end;
+      }
+      // else fully contained in previous — skip
+    }
+
+    dedupedPositions.forEach((pos) => {
       if (lastIndex < pos.start) {
         segments.push({ text: documentText.substring(lastIndex, pos.start) });
       }

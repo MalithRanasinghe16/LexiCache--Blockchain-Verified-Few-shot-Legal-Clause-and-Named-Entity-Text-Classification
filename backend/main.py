@@ -1,4 +1,5 @@
 # backend/main.py
+from typing import Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,14 +30,14 @@ class TextRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     clause_text: str
     correct_label: str
-    original_prediction: str = None
-    confidence: float = None
+    original_prediction: Optional[str] = None
+    confidence: Optional[float] = None
 
 class RenameUnknownRequest(BaseModel):
     contract_text: str  # Full contract text for re-classification
     unknown_span: str   # The span text that was marked as Unknown
     new_type_name: str  # User's name for this clause type
-    color: str = None   # Optional: user-chosen color (hex)
+    color: Optional[str] = None   # Optional: user-chosen color (hex)
 
 class UpdateColorRequest(BaseModel):
     clause_type: str
@@ -72,10 +73,10 @@ async def upload_file(file: UploadFile = File(...)):
 
     try:
         page_texts = []  # Track text per page for position mapping
+        text: str = ""  # Will hold extracted text
         
         if file.filename.lower().endswith('.pdf'):
             doc = fitz.open(stream=content, filetype="pdf")
-            text = ""
             for page_num, page in enumerate(doc, start=1):
                 page_text = page.get_text()
                 page_texts.append({
@@ -114,7 +115,7 @@ async def upload_file(file: UploadFile = File(...)):
         return {
             "status": "success", 
             "extracted_text": text,  # Full text for highlighting
-            "extracted_text_preview": text[:500] + "..." if len(text) > 500 else text,
+            "extracted_text_preview": text[:500] + "..." if len(text) > 500 else text,  # type: ignore[index]
             "page_count": len(page_texts),
             "page_texts": page_texts,  # For frontend text position mapping
             "result": result,
@@ -174,14 +175,14 @@ async def submit_feedback(request: FeedbackRequest):
 async def get_clause_types():
     """Get all known clause types (CUAD standard + learned)"""
     try:
-        from src.ml_model import CLAUSE_KEYWORDS
+        from src.ml_model import CLAUSE_KEYWORDS_WEIGHTED
         stats = model.get_statistics()
         
         return {
             "status": "success",
-            "cuad_types": list(CLAUSE_KEYWORDS.keys()),
+            "cuad_types": list(CLAUSE_KEYWORDS_WEIGHTED.keys()),
             "learned_types": list(stats['label_distribution'].keys()),
-            "total_known_types": len(set(list(CLAUSE_KEYWORDS.keys()) + list(stats['label_distribution'].keys())))
+            "total_known_types": len(set(list(CLAUSE_KEYWORDS_WEIGHTED.keys()) + list(stats['label_distribution'].keys())))
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { X, CheckCircle, Loader2 } from "lucide-react";
 import { ClauseResult } from "../types";
 
@@ -20,6 +21,16 @@ export default function RenameModal({
   onConfirm,
   onClose,
 }: Props) {
+  // Close on Escape key — must be before the early return to satisfy hooks rules
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !clause) return null;
 
   return (

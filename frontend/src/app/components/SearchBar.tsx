@@ -38,7 +38,11 @@ export default function SearchBar({
         <p className="mt-2 text-sm text-black">
           Highlighting:{" "}
           <span className="font-medium">
-            &quot;{highlightedText.substring(0, 50)}...&quot;
+            &quot;
+            {highlightedText.length > 50
+              ? highlightedText.substring(0, 50) + "..."
+              : highlightedText}
+            &quot;
           </span>
         </p>
       )}

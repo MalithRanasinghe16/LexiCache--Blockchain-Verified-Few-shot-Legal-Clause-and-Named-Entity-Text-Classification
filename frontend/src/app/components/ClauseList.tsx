@@ -33,13 +33,14 @@ export default function ClauseList({
 
   return (
     <div className="space-y-3 max-h-96 overflow-y-auto text-black">
-      {clauses.map((clause, idx) => {
+      {clauses.map((clause) => {
         const isActive = activeClause?.span === clause.span;
         const isUnknown = clause.clause_type === "Unknown clause";
+        const stableKey = `${clause.clause_type}__${clause.start_idx ?? clause.span.slice(0, 40)}`;
 
         return (
           <div
-            key={idx}
+            key={stableKey}
             className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${
               isActive
                 ? "border-amber-400 bg-amber-50 shadow-md ring-2 ring-amber-300"

@@ -10,6 +10,7 @@ export type ClauseResult = {
   start_idx?: number;
   end_idx?: number;
   page_number?: number;
+  context_heading?: string;
 };
 
 export type TextItem = {
