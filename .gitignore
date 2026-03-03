@@ -1,6 +1,7 @@
 # Virtual Environment
 env/
 venv/
+.venv/
 ENV/
 env.bak/
 venv.bak/
@@ -17,25 +18,26 @@ __pycache__/
 .env.local
 .env.*.local
 
-# Data files
-data/
+# Data files (large datasets downloaded at runtime)
 *.csv
 *.xlsx
-*.json
 *.db
 *.sqlite
 *.sqlite3
 
-# Model files
+# Model weights (large binary files)
 *.pth
 *.pt
 *.h5
 *.pkl
 *.pickle
 
+# Runtime-generated knowledge files
+backend/clause_knowledge.json
+backend/support_set.pkl
+
 # Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb_checkpoints/
+.ipynb_checkpoints/
 
 # IDEs
 .vscode/
@@ -43,7 +45,6 @@ data/
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Testing
 .coverage
@@ -60,6 +61,7 @@ dist/
 # Logs
 *.log
 logs/
+*_output.txt
 
 # OS
 Thumbs.db
@@ -69,3 +71,6 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Node.js (frontend)
+node_modules/

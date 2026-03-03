@@ -210,7 +210,15 @@ export default function PdfViewer({
 
   // ── Auto-scroll to the page containing the active clause ───────────────
   useEffect(() => {
-    if (!activeClause || pageTextContents.length === 0) return;
+    if (!activeClause || pageTextContents.length === 0) {
+      console.log("⏭️ PDF Scroll: Skipping (no active clause or page content)");
+      return;
+    }
+
+    console.log("🔍 PDF Scroll: Looking for active clause on pages...", {
+      clause: activeClause.span.substring(0, 50) + "...",
+      numPages: pageTextContents.length,
+    });
 
     // Find the first page where the active clause text appears
     for (let i = 0; i < pageTextContents.length; i++) {
@@ -219,12 +227,17 @@ export default function PdfViewer({
         pageTextContents[i],
       );
       if (positions.length > 0) {
+        console.log(
+          `✅ Found clause on page ${i + 1}, scrolling to it...`,
+          positions,
+        );
         // Delay slightly so canvas highlights are drawn first
         setTimeout(() => {
           pageContainerRefs.current[i]?.scrollIntoView({
             behavior: "smooth",
             block: "center",
           });
+          console.log(`📍 Scrolled to page ${i + 1}`);
         }, 350);
         break;
       }
@@ -234,6 +247,12 @@ export default function PdfViewer({
   // ── Draw clause + active + search highlights on canvas ────────────────
   const drawHighlights = useCallback(() => {
     if (!result?.result || pageTextContents.length === 0) return;
+
+    console.log("🎨 Drawing highlights...", {
+      totalClauses: result.result.length,
+      activeClause: activeClause?.clause_type,
+      highlightedText: highlightedText?.substring(0, 30),
+    });
 
     setTimeout(() => {
       pageTextContents.forEach((pageContent, pageIndex) => {

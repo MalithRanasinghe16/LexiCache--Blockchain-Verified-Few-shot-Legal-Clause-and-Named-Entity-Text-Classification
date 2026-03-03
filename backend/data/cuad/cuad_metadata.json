@@ -1,0 +1,9 @@
+{
+  "dataset": "CUAD",
+  "source": "Kaggle - theatticusproject/atticus-open-contract-dataset-aok-beta",
+  "license": "CC BY 4.0",
+  "citation": "Hendrycks, D., et al. (2021). CUAD: An Expert-Annotated NLP Dataset for Legal Contract Review.",
+  "local_path": "C:\\Users\\T.M.Malith Sandeepa\\.cache\\kagglehub\\datasets\\theatticusproject\\atticus-open-contract-dataset-aok-beta\\versions\\3",
+  "description": "510 full legal contracts with 41 clause types + expert span annotations",
+  "status": "full_dataset_loaded_via_kaggle"
+}

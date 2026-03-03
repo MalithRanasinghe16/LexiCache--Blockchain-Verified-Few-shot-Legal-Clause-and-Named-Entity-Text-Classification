@@ -1,0 +1,12 @@
+{
+  "dataset": "LEDGAR",
+  "source": "https://huggingface.co/datasets/lex_glue",
+  "license": "CC BY-SA 4.0",
+  "citation": "Chalkidis, I., et al. (2022). LexGLUE: A Benchmark Dataset for Legal Language Understanding.",
+  "splits": [
+    "train",
+    "test",
+    "validation"
+  ],
+  "description": "Legal provisions classification from SEC EDGAR contracts"
+}

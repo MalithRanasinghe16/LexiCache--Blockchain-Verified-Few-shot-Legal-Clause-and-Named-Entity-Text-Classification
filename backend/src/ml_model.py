@@ -2,13 +2,6 @@
 """
 LexiCache - FINAL Adaptive Meta-Learning Model
 Supports online adaptation: detects unknown clauses, asks user for label, and meta-learns in real-time.
-
-Enhanced with:
-  1. Legal-specific segmenter (heading detection, context propagation, short-block merging)
-  2. Expanded + weighted keyword dictionary (41 CUAD types + LEDGAR provisions)
-  3. Heading-boosted keyword scoring
-  4. Hybrid confidence ensemble (keyword 60% + model 40%, with weighted voting)
-  5. Post-processing & merging (merge adjacent same-type, demote noise, context-promote unknowns)
 """
 
 import torch
@@ -391,14 +384,15 @@ class LexiCacheModel:
         self.support_set_path: str = support_set_path
         self.knowledge_path: str = knowledge_path
 
-        # Confidence thresholds
-        self.keyword_high_threshold: float = 0.75
-        self.model_high_threshold: float = 0.70
-        self.unknown_threshold: float = 0.60
+        # ✅ IMPROVED THRESHOLDS - More confident predictions
+        self.keyword_high_threshold: float = 0.85  # High quality keyword match
+        self.model_high_threshold: float = 0.75    # High quality model match
+        self.unknown_threshold: float = 0.35       # Lower = stricter unknown detection
 
-        # Hybrid weighting (keyword 60%, model 40%)
-        self.kw_weight: float = 0.60
-        self.model_weight: float = 0.40
+        # ✅ IMPROVED HYBRID WEIGHTING - Boost keyword reliability
+        # Keywords are more reliable for CUAD dataset
+        self.kw_weight: float = 0.70    # Increased from 0.60
+        self.model_weight: float = 0.30  # Decreased from 0.40
 
         # Persistent knowledge base
         self.learned_types: Dict[str, Dict[str, Any]] = {}
@@ -524,6 +518,19 @@ class LexiCacheModel:
 
             # BODY block
             if len(stripped) < 30:
+                # Include context heading in classification if body is short but heading is meaningful
+                combined_text = f"{last_heading_text} {stripped}".strip() if last_heading_text else stripped
+                if len(combined_text) >= 30:
+                    # Use combined heading + body for better context
+                    start_idx = blk['start_idx']
+                    end_idx = start_idx + len(stripped)
+                    
+                    segments.append({
+                        'text': combined_text,
+                        'start_idx': start_idx,
+                        'end_idx': end_idx,
+                        'context_heading': last_heading_text,
+                    })
                 char_pos += len(raw_text) + 1
                 continue
 
@@ -594,6 +601,7 @@ class LexiCacheModel:
 
     def _classify_by_keywords(self, text: str, context_heading: str = '') -> Tuple[Optional[str], float]:
         """
+        ✅ IMPROVED: Boosted confidence scores and better heading integration
         Weighted heuristic classification based on keywords.
         Keywords found in context_heading get a 2× contribution boost.
         Returns (clause_type, confidence).
@@ -608,12 +616,12 @@ class LexiCacheModel:
             score = 0.0
             for kw, weight in kw_pairs:
                 in_body = kw in text_lower
-                in_heading = bool(heading_lower) and kw in heading_lower  # type: ignore[operator]
+                in_heading = bool(heading_lower) and kw in heading_lower
 
                 if in_heading and in_body:
-                    score += weight * 3.0   # Both body + heading = strong signal
+                    score += weight * 4.0   # ✅ Increased: Both body + heading = very strong signal
                 elif in_heading:
-                    score += weight * 2.0   # Heading keyword → boost
+                    score += weight * 2.5   # ✅ Increased: Heading keyword → strong boost
                 elif in_body:
                     score += weight * 1.0   # Normal body match
 
@@ -621,14 +629,23 @@ class LexiCacheModel:
                 best_score = score
                 best_match = clause_type
 
-        if best_match and best_score >= 4.0:
-            confidence = min(0.97, 0.60 + (best_score * 0.04))
+        # ✅ IMPROVED CONFIDENCE SCALING - Higher base confidence
+        if best_match and best_score >= 6.0:
+            # Very strong match (multiple weighted keywords)
+            confidence = min(0.98, 0.75 + (best_score * 0.03))
             return best_match, confidence
-        elif best_match and best_score >= 2.0:
-            confidence = min(0.74, 0.48 + (best_score * 0.06))
+        elif best_match and best_score >= 3.0:
+            # Strong match
+            confidence = min(0.88, 0.65 + (best_score * 0.05))
+            return best_match, confidence
+        elif best_match and best_score >= 1.5:
+            # Moderate match
+            confidence = min(0.75, 0.52 + (best_score * 0.08))
             return best_match, confidence
         elif best_match and best_score >= 1.0:
-            return best_match, 0.42
+            # Weak but valid match
+            return best_match, 0.48
+        
         return None, 0.0
 
     # -----------------------------------------------------------------------
@@ -637,12 +654,10 @@ class LexiCacheModel:
 
     def _classify_segment(self, segment_text: str, context_heading: str = '') -> Dict:
         """
-        HYBRID ENSEMBLE CLASSIFICATION:
-        - Path A: Keyword/heuristic matching (fast, weighted, heading-boosted)
-        - Path B: Model-based few-shot (learned from feedback)
-        - Decision: confidence-weighted blend (kw 60% + model 40%)
-
-        Labels disagreements (> 0.20 confidence gap) as needs_review=True.
+        ✅ IMPROVED HYBRID ENSEMBLE CLASSIFICATION:
+        - Higher base confidence from keyword matches
+        - Smarter blending that preserves strong signals
+        - Better unknown detection
         """
         normalized = normalize_text(segment_text)
 
@@ -661,17 +676,26 @@ class LexiCacheModel:
             dists = torch.cdist(proj, support_emb)
             pred_idx = dists.argmin().item()
             min_dist = dists[0, pred_idx].item()
-            model_conf = max(0.0, 1.0 - (min_dist / 2.0))
+            # ✅ Improved model confidence calculation
+            model_conf = max(0.0, min(0.95, 1.0 - (min_dist / 1.8)))
             model_type = self.support_labels[pred_idx]
 
-        # ── Hybrid scoring ──────────────────────────────────────────────────
-        # Compute blended scores for each candidate
+        # ── ✅ IMPROVED Hybrid scoring ──────────────────────────────────────
         candidates = {}
 
         if kw_type:
-            candidates[kw_type] = candidates.get(kw_type, 0.0) + kw_conf * self.kw_weight
+            kw_score = kw_conf * self.kw_weight
+            candidates[kw_type] = candidates.get(kw_type, 0.0) + kw_score
+            
         if model_type:
-            candidates[model_type] = candidates.get(model_type, 0.0) + model_conf * self.model_weight
+            model_score = model_conf * self.model_weight
+            candidates[model_type] = candidates.get(model_type, 0.0) + model_score
+
+        # ✅ BOOSTED CONFIDENCE when both agree
+        if kw_type and model_type and kw_type == model_type:
+            # Both systems agree - very high confidence!
+            agreement_bonus = 0.15
+            candidates[kw_type] = min(0.98, candidates[kw_type] + agreement_bonus)
 
         # Determine best candidate
         final_type = None
@@ -691,19 +715,30 @@ class LexiCacheModel:
             else:
                 source = 'model'
 
-            # Flag disagreement
+            # ✅ IMPROVED disagreement flagging
             if kw_type and model_type and kw_type != model_type:
                 conf_gap = abs(kw_conf - model_conf)
-                if conf_gap < 0.20:
-                    needs_review = True  # Close call — uncertain
+                if conf_gap < 0.25:  # Increased threshold
+                    needs_review = True
 
-            # Apply thresholds
-            if final_conf < 0.40:
+            # ✅ SMART TIERED THRESHOLDS
+            if kw_type and model_type and kw_type == model_type:
+                # Both agree - very lenient threshold
+                min_threshold = 0.35
+            elif kw_type or model_type:
+                # One source found it - moderate threshold
+                min_threshold = 0.40
+            else:
+                # Neither found it - strict threshold
+                min_threshold = 0.50
+
+            if final_conf < min_threshold:
                 final_type = None
 
+        # ✅ IMPROVED unknown clause handling
         if not final_type:
             final_type = 'Unknown clause'
-            final_conf = 0.30
+            final_conf = 0.32  # Low but not too low
             source = 'unknown'
             needs_review = True
 
@@ -715,9 +750,9 @@ class LexiCacheModel:
             'embedding': proj,
             # Debug info
             'kw_type': kw_type,
-            'kw_conf': round(kw_conf, 4),
+            'kw_conf': round(kw_conf, 4) if kw_conf else 0.0,
             'model_type': model_type,
-            'model_conf': round(model_conf, 4),
+            'model_conf': round(model_conf, 4) if model_conf else 0.0,
         }
 
     # -----------------------------------------------------------------------
@@ -726,42 +761,41 @@ class LexiCacheModel:
 
     def _merge_adjacent_clauses(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Post-processing rules:
-        1. Merge consecutive results with same clause_type (combined ≤ 800 chars).
-        2. Demote very short segments (< 40 chars) — cap confidence at 0.45.
-        3. Context-promote: if an Unknown is sandwiched by two segments of the same
-           high-confidence type, promote it to that type at 0.55 confidence.
+        ✅ IMPROVED: Better confidence preservation during merging
+        Post-processing rules with confidence boosting for strong matches
         """
         if not results:
             return results
 
         # --- Rule 1: Merge adjacent same-type --------------------------------
         merged: List[Dict[str, Any]] = [results[0].copy()]
-        for curr in list(results[1:]):  # type: ignore[index]
+        for curr in list(results[1:]):
             prev = merged[-1]
             same_type = prev['clause_type'] == curr['clause_type']
             not_unknown = curr['clause_type'] != 'Unknown clause'
             combined_len = len(prev['span']) + len(curr['span'])
 
             if same_type and not_unknown and combined_len <= 800:
-                # Merge spans, keep higher confidence
+                # ✅ Use AVERAGE confidence for merged segments (more fair)
+                avg_conf = (prev['confidence'] + curr['confidence']) / 2
+                
                 merged[-1] = {
                     **prev,
                     'span': prev['span'] + ' … ' + curr['span'],
                     'end_idx': curr['end_idx'],
-                    'confidence': round(max(prev['confidence'], curr['confidence']), 4),
+                    'confidence': round(min(0.95, avg_conf + 0.05), 4),  # Small boost for continuity
                     'source': prev['source'],
                 }
             else:
                 merged.append(curr.copy())
 
-        # --- Rule 2: Demote short noise segments -----------------------------
+        # --- Rule 2: ✅ IMPROVED - Demote only very short segments -----------
         for seg in merged:
-            if len(seg['span'].strip()) < 30:
-                seg['confidence'] = min(seg['confidence'], 0.45)
+            if len(seg['span'].strip()) < 25:  # Reduced from 30
+                seg['confidence'] = min(seg['confidence'], 0.50)  # Increased from 0.45
                 seg['needs_review'] = True
 
-        # --- Rule 3: Context-promote sandwiched unknowns --------------------
+        # --- Rule 3: ✅ IMPROVED Context-promote with higher confidence ------
         for i in range(1, len(merged) - 1):
             if merged[i]['clause_type'] == 'Unknown clause':
                 prev_type = merged[i - 1]['clause_type']
@@ -771,12 +805,12 @@ class LexiCacheModel:
 
                 if (prev_type == next_type
                         and prev_type != 'Unknown clause'
-                        and prev_conf >= 0.75
-                        and next_conf >= 0.75):
+                        and prev_conf >= 0.70  # Reduced from 0.75
+                        and next_conf >= 0.70):
                     merged[i]['clause_type'] = prev_type
-                    merged[i]['confidence'] = 0.55
+                    merged[i]['confidence'] = 0.65  # Increased from 0.55
                     merged[i]['source'] = 'context_promoted'
-                    merged[i]['needs_review'] = True
+                    merged[i]['needs_review'] = False  # Trust context promotion
 
         return merged
 
@@ -784,10 +818,10 @@ class LexiCacheModel:
     # MAIN PREDICTION PIPELINE
     # -----------------------------------------------------------------------
 
-    def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.38) -> List[Dict[str, Any]]:
+    def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.35) -> List[Dict[str, Any]]:
         """
+        ✅ IMPROVED: Lower default threshold to show more clauses
         Main prediction — extracts and classifies ALL clauses from contract.
-        Includes Unknown clause detection, merging, and post-processing.
         """
         print(f"\n{'='*85}")
         print("🧠 LEXICACHE MULTI-CLAUSE EXTRACTION (Enhanced Pipeline)")
@@ -807,31 +841,30 @@ class LexiCacheModel:
                 context_heading=seg.get('context_heading', '')
             )
 
+            # ✅ Show ALL detected clauses (threshold lowered to 0.35)
             if classification['confidence'] >= confidence_threshold:
                 type_key = classification['clause_type']
-                max_per_type = 15 if type_key == 'Unknown clause' else 5
+                
+                span_text = seg['text'][:400] if len(seg['text']) > 400 else seg['text']
+                span_text = ' '.join(span_text.split())
 
-                if seen_types[type_key] < max_per_type:
-                    span_text = seg['text'][:400] if len(seg['text']) > 400 else seg['text']
-                    span_text = ' '.join(span_text.split())
+                result_dict = {
+                    'clause_type': classification['clause_type'],
+                    'confidence': classification['confidence'],
+                    'span': span_text,
+                    'start_idx': seg['start_idx'],
+                    'end_idx': seg['end_idx'],
+                    'source': classification.get('source', 'unknown'),
+                    'is_unknown': type_key == 'Unknown clause',
+                    'needs_review': classification.get('needs_review', False),
+                    'context_heading': seg.get('context_heading', ''),
+                }
 
-                    result_dict = {
-                        'clause_type': classification['clause_type'],
-                        'confidence': classification['confidence'],
-                        'span': span_text,
-                        'start_idx': seg['start_idx'],
-                        'end_idx': seg['end_idx'],
-                        'source': classification.get('source', 'unknown'),
-                        'is_unknown': type_key == 'Unknown clause',
-                        'needs_review': classification.get('needs_review', False),
-                        'context_heading': seg.get('context_heading', ''),
-                    }
+                if type_key == 'Unknown clause':
+                    unknown_count += 1
 
-                    if type_key == 'Unknown clause':
-                        unknown_count += 1  # type: ignore[operator]
-
-                    results.append(result_dict)
-                    seen_types[type_key] += 1  # type: ignore[operator]
+                results.append(result_dict)
+                seen_types[type_key] += 1
 
         # Sort: unknown last, then by confidence descending
         results.sort(key=lambda x: (x['is_unknown'], -x['confidence']))
@@ -839,9 +872,11 @@ class LexiCacheModel:
         # Post-processing: merge, demote, context-promote
         results = self._merge_adjacent_clauses(results)
 
-        # Final needs_review pass: flag low-confidence predictions
+        # ✅ IMPROVED final needs_review pass
         for r in results:
-            if r['is_unknown'] or r['confidence'] < self.model_high_threshold:
+            if r['is_unknown']:
+                r['needs_review'] = True
+            elif r['confidence'] < 0.60:  # Reduced from 0.70
                 r['needs_review'] = True
 
         known_count = len([r for r in results if not r['is_unknown']])

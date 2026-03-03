@@ -235,10 +235,18 @@ export default function Home() {
   };
 
   const handleClauseClick = (clause: ClauseResult) => {
+    console.log("🔍 Clause clicked:", {
+      type: clause.clause_type,
+      isUnknown: clause.clause_type === "Unknown clause",
+      span: clause.span.substring(0, 50) + "...",
+    });
+
     if (clause.clause_type === "Unknown clause") {
+      console.log("📝 Opening rename modal for unknown clause");
       setSelectedUnknownClause(clause);
       setShowRenameModal(true);
     } else {
+      console.log("✨ Setting active clause for highlighting & scroll");
       // Set active clause → triggers PDF scroll + strong yellow highlight
       setActiveClause(clause);
       // Also set highlighted text for DOCX <mark> rendering + search indicator
@@ -246,14 +254,20 @@ export default function Home() {
 
       // DOCX: scroll to the <mark> element
       if (fileType !== "pdf") {
+        console.log("📄 DOCX: Scrolling to mark element");
         setTimeout(() => {
           const marks = document.querySelectorAll("mark");
           marks.forEach((mark) => {
             if (mark.textContent?.includes(clause.span.substring(0, 50))) {
               mark.scrollIntoView({ behavior: "smooth", block: "center" });
+              console.log("✅ Scrolled to mark element");
             }
           });
         }, 100);
+      } else {
+        console.log(
+          "📑 PDF: Active clause set, useEffect should trigger scroll",
+        );
       }
     }
   };
