@@ -1,6 +1,6 @@
 """
-LexiCache Online Learning Demo
-Demonstrates how the adaptive meta-learning system works
+"""LexiCache online learning demo.
+Demonstrates how the adaptive meta-learning system works.
 """
 
 import requests
@@ -96,10 +96,10 @@ if __name__ == "__main__":
         )
         
         if result['status'] == 'success':
-            print(f"   ✓ Successfully learned: {example['label']}")
+            print(f"   Successfully learned: {example['label']}")
             print(f"   Total examples: {result['model_stats']['total_examples']}")
         else:
-            print(f"   ✗ Failed to learn")
+            print(f"   Failed to learn")
     
     # 4. Check updated statistics
     print_section("Step 4: Updated Model Statistics")
@@ -126,16 +126,16 @@ if __name__ == "__main__":
         if result['status'] == 'success' and result['result']:
             top_prediction = result['result'][0]
             confidence = top_prediction.get('confidence', 0)
-            confidence_emoji = "🟢" if confidence >= 0.75 else "🟡" if confidence >= 0.55 else "🔴"
+            confidence_indicator = "HIGH" if confidence >= 0.75 else "MEDIUM" if confidence >= 0.55 else "LOW"
             
-            print(f"  {confidence_emoji} Predicted: {top_prediction['clause_type']}")
+            print(f"  [{confidence_indicator}] Predicted: {top_prediction['clause_type']}")
             print(f"     Confidence: {confidence*100:.1f}%")
             print(f"     Source: {top_prediction.get('source', 'unknown')}")
     
     # 6. Summary
     print_section("Summary")
-    print("✓ Model learned new clause types from user feedback")
-    print("✓ Knowledge persisted to support_set.pkl")
-    print("✓ Future similar clauses will be classified correctly")
-    print("✓ No retraining required - immediate adaptation!")
+    print("Model learned new clause types from user feedback")
+    print("Knowledge persisted to support_set.pkl")
+    print("Future similar clauses will be classified correctly")
+    print("No retraining required - immediate adaptation")
     print("\nThis demonstrates the power of meta-learning for legal AI.")

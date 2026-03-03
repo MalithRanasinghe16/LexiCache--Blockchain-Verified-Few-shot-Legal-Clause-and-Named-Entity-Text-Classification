@@ -56,7 +56,7 @@ export default function ColorLegend({
             <span className="text-sm font-medium truncate text-black flex items-center gap-1">
               {clause}
               {clause === "Unknown clause" && (
-                <span className="text-xs text-orange-600">📚</span>
+                <span className="text-xs text-orange-600">(teach)</span>
               )}
             </span>
           </div>

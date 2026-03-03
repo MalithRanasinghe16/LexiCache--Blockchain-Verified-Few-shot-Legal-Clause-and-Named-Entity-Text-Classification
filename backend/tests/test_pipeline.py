@@ -1,8 +1,6 @@
-# tests/test_pipeline.py
-"""
-Unit tests for the enhanced LexiCache ML pipeline.
+"""Unit tests for the LexiCache ML pipeline.
 Tests segmentation, heading detection, keyword classification, and merge logic
-WITHOUT loading the heavy neural model (uses monkey-patching).
+without loading the heavy neural model (uses monkey-patching).
 """
 
 import sys

@@ -1,7 +1,6 @@
-# src/ml_model.py
 """
-LexiCache - FINAL Adaptive Meta-Learning Model
-Supports online adaptation: detects unknown clauses, asks user for label, and meta-learns in real-time.
+Adaptive meta-learning model for LexiCache.
+Supports online adaptation: detects unknown clauses, accepts user labels, and meta-learns in real-time.
 """
 
 import torch
@@ -18,9 +17,7 @@ from datetime import datetime
 from src.modeling import PrototypicalNetwork
 from src.data import normalize_text
 
-# ---------------------------------------------------------------------------
-# 1. HEADING PATTERNS (used in segmenter)
-# ---------------------------------------------------------------------------
+# Heading patterns used in the contract segmenter
 _HEADING_LINE_PATTERNS = [
     re.compile(r'^\s*(ARTICLE|SECTION|CHAPTER|PART|SCHEDULE|EXHIBIT|ANNEX)\s+[IVXLCDM\d]+', re.IGNORECASE),
     re.compile(r'^\s*\d+(\.\d+)*\.?\s+[A-Z]'),                          # 1. Title, 1.2 Title
@@ -31,13 +28,10 @@ _HEADING_LINE_PATTERNS = [
     re.compile(r'^\s*[A-Z][A-Za-z\s\-&,]{2,60}\s*:\s*$'),              # Mixed case heading ending in colon
 ]
 
-# ---------------------------------------------------------------------------
-# 2. EXPANDED + WEIGHTED CLAUSE KEYWORDS
-#    Format: { clause_type: [(keyword, weight), ...] }
-#    weight=2 for specific multi-word phrases, weight=1 for generic terms
-# ---------------------------------------------------------------------------
+# Weighted clause keywords: { clause_type: [(keyword, weight), ...] }
+# weight=2 for specific multi-word phrases, weight=1 for generic terms
 CLAUSE_KEYWORDS_WEIGHTED = {
-    # ── Core Agreement Terms ────────────────────────────────────────────────
+    # Core Agreement Terms
     'Document Name': [
         ('this agreement', 2), ('master agreement', 2), ('master services agreement', 2),
         ('service agreement', 2), ('purchase agreement', 2), ('license agreement', 2),
@@ -64,7 +58,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('expire', 1), ('expiration', 1), ('until', 1),
     ],
 
-    # ── Financial & Payment ─────────────────────────────────────────────────
+    # Financial and Payment
     'Payment Terms': [
         ('payment shall be due', 2), ('invoice date', 2), ('net 30', 2), ('net 60', 2),
         ('due date', 2), ('payment schedule', 2), ('milestone payment', 2),
@@ -105,7 +99,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('volume cap', 1), ('maximum quantity', 1),
     ],
 
-    # ── Liability & Risk ─────────────────────────────────────────────────────
+    # Liability and Risk
     'Limitation of Liability': [
         ('in no event shall', 2), ('shall not be liable for', 2),
         ('limitation of liability', 2), ('limit on liability', 2),
@@ -132,7 +126,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('insurance', 1), ('insure', 1), ('coverage', 1),
     ],
 
-    # ── Termination & Renewal ────────────────────────────────────────────────
+    # Termination and Renewal
     'Termination': [
         ('may terminate', 2), ('notice of termination', 2), ('material breach', 2),
         ('cure period', 2), ('right to terminate', 2), ('immediately upon termination', 2),
@@ -164,7 +158,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('post-termination', 1), ('wind down', 1), ('transition', 1),
     ],
 
-    # ── Restrictions & Competition ────────────────────────────────────────────
+    # Restrictions and Competition
     'Non-Compete': [
         ('non-compete agreement', 2), ('covenant not to compete', 2),
         ('shall not compete', 2), ('competing business', 2),
@@ -195,7 +189,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('disparage', 1), ('defamatory', 1),
     ],
 
-    # ── IP & Confidentiality ─────────────────────────────────────────────────
+    # IP and Confidentiality
     'Intellectual Property': [
         ('intellectual property rights', 2), ('all intellectual property', 2),
         ('patent rights', 2), ('copyright ownership', 2), ('trademark rights', 2),
@@ -229,7 +223,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('confidential', 1), ('non-disclosure', 1),
     ],
 
-    # ── Change & Assignments ─────────────────────────────────────────────────
+    # Change and Assignments
     'Change of Control': [
         ('change of control', 2), ('change in ownership', 2),
         ('merger or acquisition', 2), ('acquisition of control', 2),
@@ -249,7 +243,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('covenant not to sue', 1), ('agree not to sue', 1),
     ],
 
-    # ── Legal & Governance ───────────────────────────────────────────────────
+    # Legal and Governance
     'Governing Law': [
         ('shall be governed by', 2), ('this agreement is governed by', 2),
         ('laws of the state of', 2), ('choice of law', 2),
@@ -306,7 +300,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('waiver', 1), ('waive', 1), ('failure to enforce', 1),
     ],
 
-    # ── Other / Miscellaneous ────────────────────────────────────────────────
+    # Other and Miscellaneous
     'Third Party Beneficiary': [
         ('no third party beneficiaries', 2), ('intended beneficiary', 2),
         ('third-party rights', 2), ('benefit of third parties', 2),
@@ -326,7 +320,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('most favored nation', 2), ('mfn clause', 2), ('most favored customer', 2),
         ('most-favored treatment', 2), ('mfn', 1),
     ],
-    # ── LEDGAR common provisions (not in CUAD 41) ────────────────────────────
+    # LEDGAR common provisions (not in CUAD 41)
     'Representations and Warranties': [
         ('represents and warrants', 2), ('representations and warranties', 2),
         ('as-is disclaimer', 2), ('no representation', 2),
@@ -363,9 +357,8 @@ CLAUSE_KEYWORDS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# 3. LexiCacheModel
-# ---------------------------------------------------------------------------
+# LexiCacheModel
+
 class LexiCacheModel:
     def __init__(self, projection_path="final_projection_head.pth", support_set_path="support_set.pkl",
                  knowledge_path="clause_knowledge.json"):
@@ -384,15 +377,14 @@ class LexiCacheModel:
         self.support_set_path: str = support_set_path
         self.knowledge_path: str = knowledge_path
 
-        # ✅ IMPROVED THRESHOLDS - More confident predictions
-        self.keyword_high_threshold: float = 0.85  # High quality keyword match
-        self.model_high_threshold: float = 0.75    # High quality model match
-        self.unknown_threshold: float = 0.35       # Lower = stricter unknown detection
+        # Classification thresholds
+        self.keyword_high_threshold: float = 0.85
+        self.model_high_threshold: float = 0.75
+        self.unknown_threshold: float = 0.35
 
-        # ✅ IMPROVED HYBRID WEIGHTING - Boost keyword reliability
-        # Keywords are more reliable for CUAD dataset
-        self.kw_weight: float = 0.70    # Increased from 0.60
-        self.model_weight: float = 0.30  # Decreased from 0.40
+        # Hybrid weighting: keywords are more reliable for CUAD
+        self.kw_weight: float = 0.70
+        self.model_weight: float = 0.30
 
         # Persistent knowledge base
         self.learned_types: Dict[str, Dict[str, Any]] = {}
@@ -407,9 +399,7 @@ class LexiCacheModel:
         print(f"  Known CUAD types: {len(CLAUSE_KEYWORDS_WEIGHTED)}")
         print(f"  Learned custom types: {len(self.learned_types)}")
 
-    # -----------------------------------------------------------------------
-    # SEGMENTATION LAYER
-    # -----------------------------------------------------------------------
+    # Segmentation
 
     @staticmethod
     def _classify_line(line: str) -> str:
@@ -595,15 +585,12 @@ class LexiCacheModel:
 
         return False
 
-    # -----------------------------------------------------------------------
-    # KEYWORD CLASSIFICATION (ENHANCED + HEADING BOOST)
-    # -----------------------------------------------------------------------
+    # Keyword classification (with heading boost)
 
     def _classify_by_keywords(self, text: str, context_heading: str = '') -> Tuple[Optional[str], float]:
         """
-        ✅ IMPROVED: Boosted confidence scores and better heading integration
         Weighted heuristic classification based on keywords.
-        Keywords found in context_heading get a 2× contribution boost.
+        Keywords found in context_heading get a 2x contribution boost.
         Returns (clause_type, confidence).
         """
         text_lower: str = text.lower()
@@ -619,17 +606,17 @@ class LexiCacheModel:
                 in_heading = bool(heading_lower) and kw in heading_lower
 
                 if in_heading and in_body:
-                    score += weight * 4.0   # ✅ Increased: Both body + heading = very strong signal
+                    score += weight * 4.0   
                 elif in_heading:
-                    score += weight * 2.5   # ✅ Increased: Heading keyword → strong boost
+                    score += weight * 2.5   
                 elif in_body:
-                    score += weight * 1.0   # Normal body match
+                    score += weight * 1.0   
 
             if score > best_score:
                 best_score = score
                 best_match = clause_type
 
-        # ✅ IMPROVED CONFIDENCE SCALING - Higher base confidence
+        #CONFIDENCE SCALING - Higher base confidence
         if best_match and best_score >= 6.0:
             # Very strong match (multiple weighted keywords)
             confidence = min(0.98, 0.75 + (best_score * 0.03))
@@ -648,16 +635,11 @@ class LexiCacheModel:
         
         return None, 0.0
 
-    # -----------------------------------------------------------------------
-    # HYBRID ENSEMBLE CLASSIFICATION
-    # -----------------------------------------------------------------------
+    # Hybrid ensemble classification
 
     def _classify_segment(self, segment_text: str, context_heading: str = '') -> Dict:
         """
-        ✅ IMPROVED HYBRID ENSEMBLE CLASSIFICATION:
-        - Higher base confidence from keyword matches
-        - Smarter blending that preserves strong signals
-        - Better unknown detection
+        Hybrid ensemble classification combining keyword and model-based approaches.
         """
         normalized = normalize_text(segment_text)
 
@@ -676,11 +658,11 @@ class LexiCacheModel:
             dists = torch.cdist(proj, support_emb)
             pred_idx = dists.argmin().item()
             min_dist = dists[0, pred_idx].item()
-            # ✅ Improved model confidence calculation
+            # Improved model confidence calculation
             model_conf = max(0.0, min(0.95, 1.0 - (min_dist / 1.8)))
             model_type = self.support_labels[pred_idx]
 
-        # ── ✅ IMPROVED Hybrid scoring ──────────────────────────────────────
+        # ── Hybrid scoring ──────────────────────────────────────
         candidates = {}
 
         if kw_type:
@@ -691,9 +673,9 @@ class LexiCacheModel:
             model_score = model_conf * self.model_weight
             candidates[model_type] = candidates.get(model_type, 0.0) + model_score
 
-        # ✅ BOOSTED CONFIDENCE when both agree
+        # Boost confidence when both systems agree
         if kw_type and model_type and kw_type == model_type:
-            # Both systems agree - very high confidence!
+            # Both systems agree - very high confidence
             agreement_bonus = 0.15
             candidates[kw_type] = min(0.98, candidates[kw_type] + agreement_bonus)
 
@@ -715,13 +697,13 @@ class LexiCacheModel:
             else:
                 source = 'model'
 
-            # ✅ IMPROVED disagreement flagging
+            # Flag disagreement between keyword and model
             if kw_type and model_type and kw_type != model_type:
                 conf_gap = abs(kw_conf - model_conf)
-                if conf_gap < 0.25:  # Increased threshold
+                if conf_gap < 0.25:
                     needs_review = True
 
-            # ✅ SMART TIERED THRESHOLDS
+            # Tiered thresholds based on agreement
             if kw_type and model_type and kw_type == model_type:
                 # Both agree - very lenient threshold
                 min_threshold = 0.35
@@ -735,7 +717,7 @@ class LexiCacheModel:
             if final_conf < min_threshold:
                 final_type = None
 
-        # ✅ IMPROVED unknown clause handling
+        # Unknown clause handling
         if not final_type:
             final_type = 'Unknown clause'
             final_conf = 0.32  # Low but not too low
@@ -755,15 +737,10 @@ class LexiCacheModel:
             'model_conf': round(model_conf, 4) if model_conf else 0.0,
         }
 
-    # -----------------------------------------------------------------------
-    # POST-PROCESSING: MERGE + DEMOTE + CONTEXT-PROMOTE
-    # -----------------------------------------------------------------------
+    # Post-processing: merge, demote, context-promote
 
     def _merge_adjacent_clauses(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        ✅ IMPROVED: Better confidence preservation during merging
-        Post-processing rules with confidence boosting for strong matches
-        """
+        """Post-processing rules: merge adjacent same-type clauses, demote short spans, context-promote."""
         if not results:
             return results
 
@@ -776,26 +753,26 @@ class LexiCacheModel:
             combined_len = len(prev['span']) + len(curr['span'])
 
             if same_type and not_unknown and combined_len <= 800:
-                # ✅ Use AVERAGE confidence for merged segments (more fair)
+                # Use average confidence for merged segments
                 avg_conf = (prev['confidence'] + curr['confidence']) / 2
                 
                 merged[-1] = {
                     **prev,
                     'span': prev['span'] + ' … ' + curr['span'],
                     'end_idx': curr['end_idx'],
-                    'confidence': round(min(0.95, avg_conf + 0.05), 4),  # Small boost for continuity
+                    'confidence': round(min(0.95, avg_conf + 0.05), 4),
                     'source': prev['source'],
                 }
             else:
                 merged.append(curr.copy())
 
-        # --- Rule 2: ✅ IMPROVED - Demote only very short segments -----------
+        # Rule 2: Demote very short segments
         for seg in merged:
-            if len(seg['span'].strip()) < 25:  # Reduced from 30
-                seg['confidence'] = min(seg['confidence'], 0.50)  # Increased from 0.45
+            if len(seg['span'].strip()) < 25:
+                seg['confidence'] = min(seg['confidence'], 0.50)
                 seg['needs_review'] = True
 
-        # --- Rule 3: ✅ IMPROVED Context-promote with higher confidence ------
+        # Rule 3: Context-promote sandwiched unknowns
         for i in range(1, len(merged) - 1):
             if merged[i]['clause_type'] == 'Unknown clause':
                 prev_type = merged[i - 1]['clause_type']
@@ -808,23 +785,18 @@ class LexiCacheModel:
                         and prev_conf >= 0.70  # Reduced from 0.75
                         and next_conf >= 0.70):
                     merged[i]['clause_type'] = prev_type
-                    merged[i]['confidence'] = 0.65  # Increased from 0.55
+                    merged[i]['confidence'] = 0.65
                     merged[i]['source'] = 'context_promoted'
-                    merged[i]['needs_review'] = False  # Trust context promotion
+                    merged[i]['needs_review'] = False
 
         return merged
 
-    # -----------------------------------------------------------------------
-    # MAIN PREDICTION PIPELINE
-    # -----------------------------------------------------------------------
+    # Main prediction pipeline
 
     def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.35) -> List[Dict[str, Any]]:
-        """
-        ✅ IMPROVED: Lower default threshold to show more clauses
-        Main prediction — extracts and classifies ALL clauses from contract.
-        """
+        """Main prediction - extracts and classifies all clauses from a contract."""
         print(f"\n{'='*85}")
-        print("🧠 LEXICACHE MULTI-CLAUSE EXTRACTION (Enhanced Pipeline)")
+        print("LEXICACHE MULTI-CLAUSE EXTRACTION")
         print(f"{'='*85}")
         print(f"Contract length: {len(contract_text)} characters")
 
@@ -841,7 +813,7 @@ class LexiCacheModel:
                 context_heading=seg.get('context_heading', '')
             )
 
-            # ✅ Show ALL detected clauses (threshold lowered to 0.35)
+            # Show all detected clauses above threshold
             if classification['confidence'] >= confidence_threshold:
                 type_key = classification['clause_type']
                 
@@ -872,27 +844,25 @@ class LexiCacheModel:
         # Post-processing: merge, demote, context-promote
         results = self._merge_adjacent_clauses(results)
 
-        # ✅ IMPROVED final needs_review pass
+        # Final needs_review pass
         for r in results:
             if r['is_unknown']:
                 r['needs_review'] = True
-            elif r['confidence'] < 0.60:  # Reduced from 0.70
+            elif r['confidence'] < 0.60:
                 r['needs_review'] = True
 
         known_count = len([r for r in results if not r['is_unknown']])
         unknown_count_final = len([r for r in results if r['is_unknown']])
         print(f"Identified {len(results)} total clauses after merging:")
-        print(f"  ✓ {known_count} known clause types")
-        print(f"  ❓ {unknown_count_final} unknown clauses (need user teaching)")
+        print(f"  {known_count} known clause types")
+        print(f"  {unknown_count_final} unknown clauses (need user teaching)")
         if unknown_count_final > 0:
-            print(f"\n  💡 Tip: Teach the system by renaming 'Unknown clause' items")
+            print(f"  Tip: Teach the system by renaming 'Unknown clause' items")
         print(f"{'='*85}\n")
 
         return results
 
-    # -----------------------------------------------------------------------
-    # PERSISTENCE
-    # -----------------------------------------------------------------------
+    # Persistence
 
     def _load_support_set(self):
         if Path(self.support_set_path).exists():
@@ -904,9 +874,9 @@ class LexiCacheModel:
                     self.support_texts = data.get('texts', [])
                     self.label_to_id = data.get('label_to_id', {})
                     self.next_label_id = data.get('next_label_id', 0)
-                print(f"  ✓ Loaded {len(self.support_embeddings)} examples from persistent storage")
+                print(f"  Loaded {len(self.support_embeddings)} examples from persistent storage")
             except Exception as e:
-                print(f"  ⚠ Failed to load support set: {e}")
+                print(f"  Failed to load support set: {e}")
 
     def _save_support_set(self):
         try:
@@ -920,9 +890,9 @@ class LexiCacheModel:
             }
             with open(self.support_set_path, 'wb') as f:
                 pickle.dump(data, f)
-            print(f"  ✓ Saved {len(self.support_embeddings)} examples to persistent storage")
+            print(f"  Saved {len(self.support_embeddings)} examples to persistent storage")
         except Exception as e:
-            print(f"  ⚠ Failed to save support set: {e}")
+            print(f"  Failed to save support set: {e}")
 
     def _load_knowledge_base(self):
         if Path(self.knowledge_path).exists():
@@ -933,7 +903,7 @@ class LexiCacheModel:
                     self.clause_colors = data.get('clause_colors', {})
                     learned_examples = data.get('learned_examples', [])
                     if learned_examples:
-                        print(f"  🔄 Rebuilding support set from {len(learned_examples)} saved examples...")
+                        print(f"  Rebuilding support set from {len(learned_examples)} saved examples...")
                         for example in learned_examples:
                             clause_type = example['clause_type']
                             text = example['text']
@@ -949,11 +919,11 @@ class LexiCacheModel:
                                 self.support_labels.append(clause_type)
                                 self.support_texts.append(text)
                             except Exception as e:
-                                print(f"    ⚠ Failed to rebuild embedding for {clause_type}: {e}")
-                        print(f"  ✓ Rebuilt support set with {len(self.support_embeddings)} examples")
-                print(f"  ✓ Loaded {len(self.learned_types)} learned clause types")
+                                print(f"    Failed to rebuild embedding for {clause_type}: {e}")
+                        print(f"  Rebuilt support set with {len(self.support_embeddings)} examples")
+                print(f"  Loaded {len(self.learned_types)} learned clause types")
             except Exception as e:
-                print(f"  ⚠ Failed to load knowledge base: {e}")
+                print(f"  Failed to load knowledge base: {e}")
 
     def _save_knowledge_base(self):
         try:
@@ -974,13 +944,11 @@ class LexiCacheModel:
             }
             with open(self.knowledge_path, 'w') as f:
                 json.dump(data, f, indent=2)
-            print(f"  ✓ Saved knowledge base ({len(self.learned_types)} types, {len(learned_examples)} examples)")
+            print(f"  Saved knowledge base ({len(self.learned_types)} types, {len(learned_examples)} examples)")
         except Exception as e:
-            print(f"  ⚠ Failed to save knowledge base: {e}")
+            print(f"  Failed to save knowledge base: {e}")
 
-    # -----------------------------------------------------------------------
-    # ONLINE LEARNING
-    # -----------------------------------------------------------------------
+    # Online learning
 
     def learn_from_feedback(self, clause_text: str, correct_label: str, color: Optional[str] = None) -> bool:
         try:
@@ -1013,12 +981,12 @@ class LexiCacheModel:
             if color:
                 self.clause_colors[correct_label] = color
 
-            print(f"  ✓ Learned: '{correct_label}' (support set now has {len(self.support_embeddings)} examples)")
+            print(f"  Learned: '{correct_label}' (support set now has {len(self.support_embeddings)} examples)")
             self._save_support_set()
             self._save_knowledge_base()
             return True
         except Exception as e:
-            print(f"  ✗ Failed to learn from feedback: {e}")
+            print(f"  Failed to learn from feedback: {e}")
             return False
 
     def rename_unknown_clause(self, clause_text: str, old_span: str, new_type_name: str, color: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
@@ -1033,7 +1001,7 @@ class LexiCacheModel:
             self._save_knowledge_base()
             return True
         except Exception as e:
-            print(f"  ✗ Failed to update color: {e}")
+            print(f"  Failed to update color: {e}")
             return False
 
     def get_statistics(self) -> Dict[str, Any]:

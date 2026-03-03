@@ -40,7 +40,7 @@ export default function RenameModal({
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold text-gray-900">
-              🎓 Teach the System
+              Teach the System
             </h2>
             <button
               onClick={onClose}
@@ -82,7 +82,7 @@ export default function RenameModal({
                 autoFocus
               />
               <p className="text-xs text-gray-500 mt-2">
-                💡 Examples: &quot;Confidentiality&quot;, &quot;Payment
+                Examples: &quot;Confidentiality&quot;, &quot;Payment
                 Terms&quot;, &quot;Liability Waiver&quot;
               </p>
             </div>

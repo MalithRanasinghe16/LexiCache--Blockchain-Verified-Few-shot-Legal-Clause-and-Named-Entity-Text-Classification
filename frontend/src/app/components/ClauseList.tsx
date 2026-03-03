@@ -68,7 +68,7 @@ export default function ClauseList({
               {/* Active badge */}
               {isActive && (
                 <span className="ml-auto flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-200 px-2 py-0.5 rounded-full">
-                  📍 Showing
+                  Showing
                 </span>
               )}
 

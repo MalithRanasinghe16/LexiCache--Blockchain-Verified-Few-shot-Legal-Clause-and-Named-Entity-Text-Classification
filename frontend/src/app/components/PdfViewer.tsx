@@ -211,11 +211,11 @@ export default function PdfViewer({
   // ── Auto-scroll to the page containing the active clause ───────────────
   useEffect(() => {
     if (!activeClause || pageTextContents.length === 0) {
-      console.log("⏭️ PDF Scroll: Skipping (no active clause or page content)");
+      console.log("PDF Scroll: Skipping (no active clause or page content)");
       return;
     }
 
-    console.log("🔍 PDF Scroll: Looking for active clause on pages...", {
+    console.log("PDF Scroll: Looking for active clause on pages...", {
       clause: activeClause.span.substring(0, 50) + "...",
       numPages: pageTextContents.length,
     });
@@ -228,7 +228,7 @@ export default function PdfViewer({
       );
       if (positions.length > 0) {
         console.log(
-          `✅ Found clause on page ${i + 1}, scrolling to it...`,
+          `Found clause on page ${i + 1}, scrolling to it...`,
           positions,
         );
         // Delay slightly so canvas highlights are drawn first
@@ -237,7 +237,7 @@ export default function PdfViewer({
             behavior: "smooth",
             block: "center",
           });
-          console.log(`📍 Scrolled to page ${i + 1}`);
+          console.log(`Scrolled to page ${i + 1}`);
         }, 350);
         break;
       }
@@ -248,7 +248,7 @@ export default function PdfViewer({
   const drawHighlights = useCallback(() => {
     if (!result?.result || pageTextContents.length === 0) return;
 
-    console.log("🎨 Drawing highlights...", {
+    console.log("Drawing highlights...", {
       totalClauses: result.result.length,
       activeClause: activeClause?.clause_type,
       highlightedText: highlightedText?.substring(0, 30),

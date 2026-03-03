@@ -2,162 +2,118 @@
 
 ## Overview
 
-LexiCache is a Python-based project that leverages machine learning and natural language processing technologies. This project is designed with a focus on ethical AI practices, ensuring that all data handling complies with privacy regulations and ethical standards.
+LexiCache is a legal document analysis tool that uses few-shot meta-learning to classify contract clauses. It combines a FastAPI backend with a Next.js frontend to provide an interactive document analysis experience.
 
 **Key Features:**
 
-- Streamlit-based interactive frontend
-- Machine learning capabilities with PyTorch and Transformers
-- Natural language processing with NLTK and spaCy
-- PDF processing capabilities
-- Blockchain integration via Web3
-- Modular architecture for easy maintenance and scalability
+- Upload PDF or DOCX contracts and get clause-by-clause classification
+- Hybrid classification using keyword matching and prototypical networks (Legal-BERT)
+- Adaptive online learning: teach the system new clause types through the UI
+- Supports 40+ CUAD clause types plus custom user-defined types
+- Visual clause highlighting with color-coded overlays on the document
+
+## Architecture
+
+- **Backend:** Python 3.10, FastAPI, PyTorch, Transformers (Legal-BERT), PyMuPDF, python-docx
+- **Frontend:** Next.js (TypeScript), React-PDF, Tailwind CSS
+- **ML Model:** Prototypical networks with a meta-trained projection head on CUAD/LEDGAR/CoNLL-2003
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- Git
-- pip package manager
+- Python 3.10 or higher
+- Node.js 18 or higher
+- pip and npm package managers
 
-### Installation
-
-1. Clone the repository:
+### Backend
 
 ```bash
-git clone <repository-url>
-cd lexicache
-```
+cd backend
+python -m venv .venv
 
-2. Create a virtual environment:
+# Windows
+.venv\Scripts\activate
 
-```bash
-python -m venv env
-```
+# Linux/Mac
+source .venv/bin/activate
 
-3. Activate the virtual environment:
-
-- **Windows (PowerShell):**
-  ```powershell
-  .\env\Scripts\Activate.ps1
-  ```
-- **Windows (Command Prompt):**
-  ```cmd
-  .\env\Scripts\activate.bat
-  ```
-- **Linux/Mac:**
-  ```bash
-  source env/bin/activate
-  ```
-
-4. Install dependencies:
-
-```bash
 pip install -r requirements.txt
 ```
 
-5. Create a `.env` file in the root directory for environment variables:
+### Frontend
 
 ```bash
-# Add your configuration here
-# Example:
-# API_KEY=your_api_key_here
+cd frontend
+npm install
 ```
 
-6. Download required NLP models:
+## Running the Application
+
+### Start the backend (port 8000)
 
 ```bash
-python -m spacy download en_core_web_sm
-python -m nltk.downloader punkt
+cd backend
+python start_server.py
 ```
 
-## Usage
-
-### Running the Application
-
-To start the Streamlit application:
-
-**Windows (PowerShell):**
-
-```powershell
-.\run.sh
-```
-
-**Linux/Mac:**
+### Start the frontend (port 3000)
 
 ```bash
-bash run.sh
+cd frontend
+npm run dev
 ```
 
-Or directly:
+Open http://localhost:3000 in your browser.
 
-```bash
-streamlit run app/main.py
-```
-
-### Project Structure
+## Project Structure
 
 ```
-lexicache/
-├── app/              # Streamlit frontend application
-├── src/              # Source code and core logic
-├── data/             # Data storage (excluded from git)
-├── contracts/        # Smart contracts (if using blockchain)
-├── notebooks/        # Jupyter notebooks for exploration
-├── tests/            # Unit and integration tests
-├── requirements.txt  # Project dependencies
-├── .gitignore       # Git ignore rules
-├── .env             # Environment variables (not tracked)
-└── README.md        # Project documentation
+LexiCache/
+  backend/
+    main.py                 # FastAPI server with all API endpoints
+    start_server.py         # Uvicorn startup script
+    requirements.txt        # Python dependencies
+    src/
+      __init__.py           # Package exports
+      ml_model.py           # Adaptive meta-learning model (segmentation, classification, online learning)
+      modeling.py           # PrototypicalNetwork with Legal-BERT encoder
+      data.py               # Dataset acquisition and text normalization
+      experiments.py        # Few-shot experiment runner and meta-training
+      fine_tune_multi.py    # Multi-task fine-tuning on CUAD + LEDGAR + CoNLL-2003
+    examples/
+      online_learning_demo.py  # Demo script for adaptive learning API
+    tests/
+      test_pipeline.py      # Unit tests for segmentation, keywords, merge logic
+    data/                   # Dataset metadata
+  frontend/
+    src/
+      app/
+        page.tsx            # Main page with upload, analysis, and clause interaction
+        layout.tsx          # Root layout
+        types.ts            # TypeScript type definitions
+        components/
+          AppHeader.tsx     # Application header
+          UploadForm.tsx    # File upload form
+          DocumentViewer.tsx # PDF/DOCX document display
+          PdfViewer.tsx     # PDF rendering with clause highlight overlays
+          DocxViewer.tsx    # DOCX text rendering
+          ResultsSidebar.tsx # Clause results panel
+          ClauseList.tsx    # Individual clause cards
+          FilterPanel.tsx   # Clause type and confidence filters
+          SearchBar.tsx     # Text search in document
+          ColorLegend.tsx   # Clause color legend with customization
+          RenameModal.tsx   # Modal to teach the system new clause types
 ```
 
-### Development
+## Datasets
 
-- Place your core business logic in the `src/` directory
-- Build UI components in the `app/` directory
-- Store notebooks for data exploration in `notebooks/`
-- Write tests in the `tests/` directory
-- Keep data files in the `data/` directory (gitignored)
+All datasets are publicly available and properly licensed:
 
-## Ethics and Data Privacy
-
-### 🔒 Privacy First
-
-This project is committed to ethical AI development and data privacy:
-
-- **No PII (Personally Identifiable Information):** This project strictly prohibits the use of any personally identifiable information. All data processing must be anonymized and comply with privacy regulations such as GDPR, CCPA, and other applicable laws.
-
-- **Public Datasets Only:** Use only publicly available datasets that are properly licensed for research and development purposes. Always verify dataset licenses and attribution requirements.
-
-- **Synthetic Data Preferred:** When possible, use synthetic or anonymized data for development and testing. This ensures no real individuals' privacy is compromised.
-
-- **Data Minimization:** Collect and process only the minimum amount of data necessary for the intended purpose.
-
-- **Transparency:** Clearly document all data sources, processing methods, and model behaviors. Users should understand how their data (if any) is being used.
-
-- **Bias Mitigation:** Actively monitor and mitigate biases in models and datasets to ensure fair and equitable outcomes.
-
-- **Security:** Implement appropriate security measures to protect any data processed by the application.
-
-### Ethical Guidelines
-
-1. **Consent:** Ensure all data used has proper consent and licensing
-2. **Accountability:** Take responsibility for model outputs and decisions
-3. **Fairness:** Test models across diverse scenarios to prevent discrimination
-4. **Safety:** Implement safeguards against harmful or malicious use
-5. **Review:** Regularly audit data practices and model performance for ethical compliance
-
-**Remember:** Ethical AI is not just about compliance—it's about building technology that respects human rights and dignity.
-
-## Contributing
-
-Contributions are welcome! Please ensure all contributions adhere to the ethical guidelines outlined above.
+1. **CUAD** - Contract Understanding Atticus Dataset (CC BY 4.0)
+2. **LEDGAR** - Legal provisions from LexGLUE (CC BY-SA 4.0)
+3. **CoNLL-2003** - Named Entity Recognition (Research use)
 
 ## License
 
 [Add your license information here]
-
-## Contact
-
-[Add contact information here]

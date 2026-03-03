@@ -1,9 +1,7 @@
 
 """
-Few-shot Experiments Runner for LexiCache
-
-Loads LEDGAR → runs prototypical episodes → reports macro F1.
-Baseline: 0.726 macro F1 (5-way 5-shot, 200 episodes) on frozen Legal-BERT.
+Few-shot experiments runner for LexiCache.
+Loads LEDGAR, runs prototypical episodes, and reports macro F1.
 """
 
 import numpy as np
@@ -154,7 +152,7 @@ def train_prototypical_meta(
         if avg_loss < best_loss:
             best_loss = avg_loss
             torch.save(projection.state_dict(), save_path)
-            print(f"  → Saved better projection: {save_path} (loss {avg_loss:.4f})")
+            print(f"  Saved better projection: {save_path} (loss {avg_loss:.4f})")
     
     print("\nMeta-training completed.")
     print(f"Best projection saved to: {save_path}")

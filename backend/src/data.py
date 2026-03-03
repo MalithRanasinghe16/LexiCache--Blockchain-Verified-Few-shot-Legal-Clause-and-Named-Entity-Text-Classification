@@ -1,27 +1,20 @@
 """
-Data Acquisition and Preprocessing for Legal AI
+Data acquisition and preprocessing for LexiCache.
 
-This script downloads and preprocesses public legal datasets for AI training.
-All datasets are publicly available and properly licensed for research use.
+Downloads and preprocesses public legal datasets for AI training.
 
 Datasets:
 - CUAD (Contract Understanding Atticus Dataset): Legal contract clauses
   Source: https://huggingface.co/datasets/cuad
   License: CC BY 4.0
-  
+
 - LexGLUE/LEDGAR: Legal provisions classification
   Source: https://huggingface.co/datasets/lex_glue
   License: CC BY-SA 4.0
-  
-- CONLL-2003: Named Entity Recognition
+
+- CoNLL-2003: Named Entity Recognition
   Source: https://huggingface.co/datasets/conll2003
   License: Research use
-
-ETHICAL GUIDELINES:
-- Only public datasets with proper licensing
-- No proprietary or confidential legal documents
-- No personally identifiable information (PII)
-- All sources properly cited and attributed
 """
 
 import os
@@ -117,8 +110,8 @@ def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
         if not kaggle_cache_path.exists():
             raise FileNotFoundError("CUAD cache not found. Please run kagglehub download again.")
 
-        print(f"✓ Successfully loaded CUAD from: {kaggle_cache_path}")
-        print(f"  - Full contracts available in: {kaggle_cache_path / 'CUAD_v1'}")
+        print(f"Successfully loaded CUAD from: {kaggle_cache_path}")
+        print(f"  Full contracts available in: {kaggle_cache_path / 'CUAD_v1'}")
         
         # Save metadata
         if save_path:
@@ -138,12 +131,12 @@ def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
             with open(save_path / "cuad_metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
             
-            print(f"✓ Metadata saved to {save_path / 'cuad_metadata.json'}")
+            print(f"Metadata saved to {save_path / 'cuad_metadata.json'}")
         
         return {"path": kaggle_cache_path, "status": "success"}
         
     except Exception as e:
-        print(f"✗ Error loading CUAD from cache: {str(e)}")
+        print(f"Error loading CUAD from cache: {str(e)}")
         return None
 
 
@@ -175,10 +168,10 @@ def download_ledgar_dataset(save_path: Optional[Path] = None) -> Dict:
         # Load LEDGAR subset from LexGLUE
         dataset = load_dataset("lex_glue", "ledgar", trust_remote_code=True)
         
-        print(f"✓ Successfully loaded LEDGAR dataset")
-        print(f"  - Train samples: {len(dataset['train']) if 'train' in dataset else 'N/A'}")
-        print(f"  - Validation samples: {len(dataset['validation']) if 'validation' in dataset else 'N/A'}")
-        print(f"  - Test samples: {len(dataset['test']) if 'test' in dataset else 'N/A'}")
+        print(f"Successfully loaded LEDGAR dataset")
+        print(f"  Train samples: {len(dataset['train']) if 'train' in dataset else 'N/A'}")
+        print(f"  Validation samples: {len(dataset['validation']) if 'validation' in dataset else 'N/A'}")
+        print(f"  Test samples: {len(dataset['test']) if 'test' in dataset else 'N/A'}")
         
         # Save processed data
         if save_path:
@@ -198,12 +191,12 @@ def download_ledgar_dataset(save_path: Optional[Path] = None) -> Dict:
             with open(save_path / "ledgar_metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
             
-            print(f"✓ Metadata saved to {save_path / 'ledgar_metadata.json'}")
+            print(f"Metadata saved to {save_path / 'ledgar_metadata.json'}")
         
         return dataset
         
     except Exception as e:
-        print(f"✗ Error downloading LEDGAR: {str(e)}")
+        print(f"Error downloading LEDGAR: {str(e)}")
         return None
 
 
@@ -237,10 +230,10 @@ def download_conll2003_dataset(save_path: Optional[Path] = None) -> Dict:
         # Load CoNLL-2003 dataset
         dataset = load_dataset("conll2003", trust_remote_code=True)
         
-        print(f"✓ Successfully loaded CoNLL-2003 dataset")
-        print(f"  - Train samples: {len(dataset['train']) if 'train' in dataset else 'N/A'}")
-        print(f"  - Validation samples: {len(dataset['validation']) if 'validation' in dataset else 'N/A'}")
-        print(f"  - Test samples: {len(dataset['test']) if 'test' in dataset else 'N/A'}")
+        print(f"Successfully loaded CoNLL-2003 dataset")
+        print(f"  Train samples: {len(dataset['train']) if 'train' in dataset else 'N/A'}")
+        print(f"  Validation samples: {len(dataset['validation']) if 'validation' in dataset else 'N/A'}")
+        print(f"  Test samples: {len(dataset['test']) if 'test' in dataset else 'N/A'}")
         
         # Save processed data
         if save_path:
@@ -260,12 +253,12 @@ def download_conll2003_dataset(save_path: Optional[Path] = None) -> Dict:
             with open(save_path / "conll2003_metadata.json", "w") as f:
                 json.dump(metadata, f, indent=2)
             
-            print(f"✓ Metadata saved to {save_path / 'conll2003_metadata.json'}")
+            print(f"Metadata saved to {save_path / 'conll2003_metadata.json'}")
         
         return dataset
         
     except Exception as e:
-        print(f"✗ Error downloading CoNLL-2003: {str(e)}")
+        print(f"Error downloading CoNLL-2003: {str(e)}")
         return None
 
 
@@ -298,7 +291,7 @@ def test_normalize_text():
         print(f"   '{normalized}'")
     
     print("\n" + "="*60)
-    print("✓ Text normalization tests completed")
+    print("Text normalization tests completed")
 
 
 def main():
@@ -336,13 +329,13 @@ def main():
     print("\n" + "="*60)
     print("DATASET ACQUISITION SUMMARY")
     print("="*60)
-    print(f"✓ CUAD: {'Successfully loaded' if cuad_data else 'Failed'}")
-    print(f"✓ LEDGAR: {'Successfully loaded' if ledgar_data else 'Failed'}")
-    print(f"✓ CoNLL-2003: {'Successfully loaded' if conll_data else 'Failed'}")
+    print(f"CUAD: {'Successfully loaded' if cuad_data else 'Failed'}")
+    print(f"LEDGAR: {'Successfully loaded' if ledgar_data else 'Failed'}")
+    print(f"CoNLL-2003: {'Successfully loaded' if conll_data else 'Failed'}")
     print(f"\nData saved to: {DATA_DIR.absolute()}")
     print("="*60)
     
-    print("\n📚 CITATIONS:")
+    print("\nCITATIONS:")
     print("-" * 60)
     print("1. Hendrycks, D., et al. (2021). CUAD: An Expert-Annotated NLP")
     print("   Dataset for Legal Contract Review. arXiv:2103.06268.")

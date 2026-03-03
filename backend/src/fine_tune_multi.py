@@ -1,12 +1,6 @@
-# src/fine_tune_multi.py
 """
-LexiCache - Final Multi-Task Fine-Tuning on All 3 Datasets
-CUAD (primary) + LEDGAR + CoNLL-2003
-
-This script fine-tunes your existing projection head on all three datasets.
-Run this once to finalize the model for your thesis.
-
-Expected runtime on CPU: 4–8 hours (depending on your laptop)
+Multi-task fine-tuning on CUAD, LEDGAR, and CoNLL-2003.
+Fine-tunes the projection head on all three datasets.
 """
 
 import torch
@@ -20,8 +14,8 @@ from src.modeling import PrototypicalNetwork
 from src.data import normalize_text
 
 print("=" * 80)
-print("LexiCache - Final Multi-Task Fine-Tuning")
-print("Datasets: CUAD (primary) + LEDGAR + CoNLL-2003")
+print("LexiCache - Multi-Task Fine-Tuning")
+print("Datasets: CUAD + LEDGAR + CoNLL-2003")
 print("=" * 80)
 
 # ====================== SETUP ======================
@@ -117,10 +111,9 @@ for epoch in range(epochs):
     if avg_loss < best_loss:
         best_loss = avg_loss
         torch.save(projection.state_dict(), "final_projection_head.pth")
-        print(f"  → New best model saved: final_projection_head.pth")
+        print(f"  New best model saved: final_projection_head.pth")
 
 print("\n" + "="*80)
-print("FINAL MULTI-TASK FINE-TUNING COMPLETED!")
+print("MULTI-TASK FINE-TUNING COMPLETED")
 print(f"Best model saved as: final_projection_head.pth")
-print("You can now use this stronger model in prototype_demo.py")
 print("="*80)

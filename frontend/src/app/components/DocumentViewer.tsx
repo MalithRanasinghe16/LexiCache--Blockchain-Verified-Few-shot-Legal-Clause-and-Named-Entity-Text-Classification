@@ -78,7 +78,7 @@ export default function DocumentViewer({
           </span>
           {unknownCount > 0 && (
             <div className="text-xs text-orange-600 mt-1">
-              💡 <strong>{unknownCount}</strong> unknown clause
+              <strong>{unknownCount}</strong> unknown clause
               {unknownCount > 1 ? "s" : ""} – click to teach the system!
             </div>
           )}
