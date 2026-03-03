@@ -527,8 +527,10 @@ class LexiCacheModel:
             start_idx = blk['start_idx']
             end_idx = start_idx + len(stripped)
 
-            # Further split very long paragraphs by sentence boundaries
-            if len(stripped) > 600:
+            # Further split very long paragraphs by sentence boundaries.
+            # Threshold is 1500 chars - legal clauses regularly exceed 600 chars
+            # and splitting earlier creates fragments too short to classify.
+            if len(stripped) > 1500:
                 sentences = re.split(r'(?<=[.!?;])\s+(?=[A-Z\(\"])', stripped)
                 sent_pos = start_idx
                 for sent in sentences:
@@ -639,103 +641,94 @@ class LexiCacheModel:
 
     def _classify_segment(self, segment_text: str, context_heading: str = '') -> Dict:
         """
-        Hybrid ensemble classification combining keyword and model-based approaches.
-        """
-        normalized = normalize_text(segment_text)
+        Hybrid ensemble classification using raw text (no normalization).
+        Preserves legal capitalization, punctuation, and exact wording for accurate keyword matching.
+        Normalization is only applied in the support set (teach/feedback) path.
 
-        # Get embedding for model-based classification
+        2-tier inclusion logic based on best raw signal confidence:
+          >= 0.65 : return as a known clause type
+          < 0.65  : return as 'Unknown clause' so the user can teach it
+
+        Nothing is dropped here based on confidence alone.
+        Low confidence means the model is unsure of the TYPE, not that
+        the segment is not a clause. Structural garbage (short segments,
+        page numbers, bare headers) is filtered in predict_cuad by length.
+        """
+        # Use raw text - do NOT normalize
+        # normalize_text() strips capitalization and legal punctuation that
+        # the keyword heuristics depend on (e.g. "INDEMNIFICATION", "GOVERNING LAW").
+        raw = segment_text
+
+        # Model embedding from raw text
         with torch.no_grad():
-            emb = self.model([normalized], batch_size=1)
+            emb = self.model([raw], batch_size=1)
             proj = self.projection(emb.to(self.model.device))
 
-        # PATH A: Keyword-based (heading-boosted)
+        # PATH A: Keyword-based (heading-boosted) - already operates on raw text
         kw_type, kw_conf = self._classify_by_keywords(segment_text, context_heading)
 
-        # PATH B: Model-based few-shot
+        # PATH B: Model-based few-shot (prototype distance)
         model_type, model_conf = None, 0.0
         if len(self.support_embeddings) > 0:
             support_emb = torch.stack(self.support_embeddings).to(self.model.device)
             dists = torch.cdist(proj, support_emb)
             pred_idx = dists.argmin().item()
             min_dist = dists[0, pred_idx].item()
-            # Improved model confidence calculation
             model_conf = max(0.0, min(0.95, 1.0 - (min_dist / 1.8)))
             model_type = self.support_labels[pred_idx]
 
-        # ── Hybrid scoring ──────────────────────────────────────
-        candidates = {}
-
+        # Blended scoring (used for type selection only, not inclusion decision)
+        candidates: Dict[str, float] = {}
         if kw_type:
-            kw_score = kw_conf * self.kw_weight
-            candidates[kw_type] = candidates.get(kw_type, 0.0) + kw_score
-            
+            candidates[kw_type] = candidates.get(kw_type, 0.0) + kw_conf * self.kw_weight
         if model_type:
-            model_score = model_conf * self.model_weight
-            candidates[model_type] = candidates.get(model_type, 0.0) + model_score
-
-        # Boost confidence when both systems agree
+            candidates[model_type] = candidates.get(model_type, 0.0) + model_conf * self.model_weight
         if kw_type and model_type and kw_type == model_type:
-            # Both systems agree - very high confidence
-            agreement_bonus = 0.15
-            candidates[kw_type] = min(0.98, candidates[kw_type] + agreement_bonus)
+            candidates[kw_type] = min(0.98, candidates[kw_type] + 0.15)
 
-        # Determine best candidate
-        final_type = None
-        final_conf = 0.0
-        source = 'unknown'
-        needs_review = False
+        best_type = max(candidates, key=lambda k: candidates.get(k, 0.0)) if candidates else None
+        best_blended = candidates[best_type] if best_type else 0.0
 
-        if candidates:
-            final_type = max(candidates, key=lambda k: candidates.get(k, 0.0))
-            final_conf = candidates[final_type]
-
-            # Determine source
-            if kw_type == model_type:
-                source = 'hybrid_agree'
-            elif kw_type == final_type:
-                source = 'keywords'
-            else:
-                source = 'model'
-
-            # Flag disagreement between keyword and model
-            if kw_type and model_type and kw_type != model_type:
-                conf_gap = abs(kw_conf - model_conf)
-                if conf_gap < 0.25:
-                    needs_review = True
-
-            # Tiered thresholds based on agreement
-            if kw_type and model_type and kw_type == model_type:
-                # Both agree - very lenient threshold
-                min_threshold = 0.35
-            elif kw_type or model_type:
-                # One source found it - moderate threshold
-                min_threshold = 0.40
-            else:
-                # Neither found it - strict threshold
-                min_threshold = 0.50
-
-            if final_conf < min_threshold:
-                final_type = None
-
-        # Unknown clause handling
-        if not final_type:
-            final_type = 'Unknown clause'
-            final_conf = 0.32  # Low but not too low
+        # Source label
+        if kw_type and kw_type == model_type:
+            source = 'hybrid_agree'
+        elif best_type == kw_type:
+            source = 'keywords'
+        elif best_type == model_type:
+            source = 'model'
+        else:
             source = 'unknown'
-            needs_review = True
 
-        return {
-            'clause_type': final_type,
-            'confidence': round(final_conf, 4),
-            'source': source,
-            'needs_review': needs_review,
+        # Flag disagreement
+        needs_review = False
+        if kw_type and model_type and kw_type != model_type:
+            if abs(kw_conf - model_conf) < 0.25:
+                needs_review = True
+
+        # Inclusion decision based on best raw signal (not blended)
+        # This ensures that a strong keyword hit (e.g. 0.70) is not
+        # diluted to below the threshold by a weak/absent model signal.
+        best_raw_conf = max(kw_conf if kw_conf else 0.0, model_conf if model_conf else 0.0)
+
+        base: Dict[str, Any] = {
             'embedding': proj,
-            # Debug info
             'kw_type': kw_type,
             'kw_conf': round(kw_conf, 4) if kw_conf else 0.0,
             'model_type': model_type,
             'model_conf': round(model_conf, 4) if model_conf else 0.0,
         }
+
+        if best_raw_conf >= 0.65:
+            # High confidence: return as a known clause
+            return {**base, 'clause_type': best_type, 'confidence': round(best_blended, 4),
+                    'source': source, 'needs_review': needs_review}
+
+        else:
+            # Below threshold: include as Unknown so the user can teach it.
+            # Confidence being low means the model is unsure of the type,
+            # not that the segment is not a clause.
+            return {**base, 'clause_type': 'Unknown clause', 'confidence': round(best_raw_conf, 4),
+                    'source': 'low_confidence', 'needs_review': True}
 
     # Post-processing: merge, demote, context-promote
 
@@ -793,63 +786,69 @@ class LexiCacheModel:
 
     # Main prediction pipeline
 
-    def predict_cuad(self, contract_text: str, confidence_threshold: float = 0.35) -> List[Dict[str, Any]]:
-        """Main prediction - extracts and classifies all clauses from a contract."""
+    def predict_cuad(self, contract_text: str) -> List[Dict[str, Any]]:
+        """
+        Extract and classify all clauses from a contract.
+
+        Uses raw text throughout - no normalization in the detection path.
+        All inclusion/exclusion logic lives inside _classify_segment (3-tier threshold).
+        No top-N or per-type caps are applied - all detected clauses are returned.
+        Frontend is responsible for any display-level filtering.
+        """
         print(f"\n{'='*85}")
         print("LEXICACHE MULTI-CLAUSE EXTRACTION")
         print(f"{'='*85}")
         print(f"Contract length: {len(contract_text)} characters")
 
         segments = self._segment_contract(contract_text)
-        print(f"Found {len(segments)} potential clause segments after legal-specific segmentation")
+        print(f"Found {len(segments)} potential clause segments after segmentation")
 
         results: List[Dict[str, Any]] = []
-        seen_types: defaultdict[str, int] = defaultdict(int)
-        unknown_count: int = 0
 
         for seg in segments:
+            # Drop structural garbage only: page numbers, bare section headers,
+            # single words, empty lines. Threshold matches the segmenter minimum (30 chars).
+            if len(seg['text'].strip()) < 30:
+                continue
+
             classification = self._classify_segment(
                 seg['text'],
                 context_heading=seg.get('context_heading', '')
             )
 
-            # Show all detected clauses above threshold
-            if classification['confidence'] >= confidence_threshold:
-                type_key = classification['clause_type']
-                
-                span_text = seg['text'][:400] if len(seg['text']) > 400 else seg['text']
-                span_text = ' '.join(span_text.split())
+            type_key = classification['clause_type']
 
-                result_dict = {
-                    'clause_type': classification['clause_type'],
-                    'confidence': classification['confidence'],
-                    'span': span_text,
-                    'start_idx': seg['start_idx'],
-                    'end_idx': seg['end_idx'],
-                    'source': classification.get('source', 'unknown'),
-                    'is_unknown': type_key == 'Unknown clause',
-                    'needs_review': classification.get('needs_review', False),
-                    'context_heading': seg.get('context_heading', ''),
-                }
+            # Truncate long spans for storage (full text still in contract_text)
+            span_text = seg['text'][:500] if len(seg['text']) > 500 else seg['text']
+            span_text = ' '.join(span_text.split())
 
-                if type_key == 'Unknown clause':
-                    unknown_count += 1
+            results.append({
+                'clause_type': type_key,
+                'confidence': classification['confidence'],
+                'span': span_text,
+                'start_idx': seg['start_idx'],
+                'end_idx': seg['end_idx'],
+                'source': classification.get('source', 'unknown'),
+                'is_unknown': type_key == 'Unknown clause',
+                'needs_review': classification.get('needs_review', False),
+                'context_heading': seg.get('context_heading', ''),
+            })
 
-                results.append(result_dict)
-                seen_types[type_key] += 1
-
-        # Sort: unknown last, then by confidence descending
-        results.sort(key=lambda x: (x['is_unknown'], -x['confidence']))
-
-        # Post-processing: merge, demote, context-promote
+        # Post-processing in document order: merge adjacent same-type clauses,
+        # demote short spans, context-promote sandwiched unknowns.
+        # Sort happens AFTER merge so adjacent same-type clauses remain adjacent.
         results = self._merge_adjacent_clauses(results)
 
         # Final needs_review pass
         for r in results:
             if r['is_unknown']:
                 r['needs_review'] = True
-            elif r['confidence'] < 0.60:
+            elif r['confidence'] < 0.65:
+                # Known clauses below the confident threshold still need review
                 r['needs_review'] = True
+
+        # Sort for display: unknown clauses last, then by confidence descending
+        results.sort(key=lambda x: (x['is_unknown'], -x['confidence']))
 
         known_count = len([r for r in results if not r['is_unknown']])
         unknown_count_final = len([r for r in results if r['is_unknown']])
