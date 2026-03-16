@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import fitz  # PyMuPDF
 from docx import Document
 from src.ml_model import LexiCacheModel
+from src.deduplication import compute_doc_hash, get_cached_result, store_result
 
 app = FastAPI(
     title="LexiCache API",
@@ -64,17 +65,26 @@ async def predict_text(request: TextRequest):
 
 @app.post("/upload-file")
 async def upload_file(file: UploadFile = File(...)):
-    """Upload a PDF or DOCX file, extract text, and classify clauses with page tracking."""
+    """Upload a PDF or DOCX file, extract text, and classify clauses with page tracking.
+
+    Redis deduplication: the document is fingerprinted by SHA-256 of its
+    normalised text.  If an identical document was analysed before (within
+    90 days) the cached result is returned immediately without re-running
+    the model.  If Redis is unavailable the endpoint degrades gracefully
+    and always runs the full model pipeline.
+    """
     if not file.filename.lower().endswith(('.pdf', '.doc', '.docx')):
         raise HTTPException(status_code=400, detail="Only PDF, DOC, DOCX allowed")
 
     content = await file.read()
 
     try:
+        # ── Step 1: Extract raw text from the uploaded file ──────────────────
         page_texts = []
         text: str = ""
-        
-        if file.filename.lower().endswith('.pdf'):
+        is_pdf = file.filename.lower().endswith('.pdf')
+
+        if is_pdf:
             doc = fitz.open(stream=content, filetype="pdf")
             for page_num, page in enumerate(doc, start=1):
                 page_text = page.get_text()
@@ -87,8 +97,8 @@ async def upload_file(file: UploadFile = File(...)):
                 text += page_text + "\n"
             doc.close()
         else:
-            doc = Document(content)
-            text = "\n".join([p.text for p in doc.paragraphs])
+            docx_doc = Document(content)
+            text = "\n".join([p.text for p in docx_doc.paragraphs])
             page_texts.append({
                 'page': 1,
                 'text': text,
@@ -96,9 +106,45 @@ async def upload_file(file: UploadFile = File(...)):
                 'end_char': len(text)
             })
 
+        file_type = "pdf" if is_pdf else "docx"
+
+        # ── Step 2: Compute content hash & check Redis cache ─────────────────
+        doc_hash = compute_doc_hash(text)
+        print(f"[upload-file] doc_hash={doc_hash[:16]}... file={file.filename!r} ({len(text)} chars)")
+
+        cached = get_cached_result(doc_hash)
+        if cached is not None:
+            # Cache HIT — rebuild the full response from stored data and return
+            # immediately.  The stored page_texts and extracted_text are used
+            # verbatim so the frontend receives an identical payload.
+            cached_clauses = cached.get("clauses", [])
+            cached_page_texts = cached.get("page_texts", page_texts)
+            cached_extracted_text = cached.get("extracted_text", text)
+            cached_file_type = cached.get("file_type", file_type)
+            analyzed_at = cached.get("analyzed_at", "")
+
+            return {
+                "status": "cache_hit",
+                "cached_at": analyzed_at,
+                "extracted_text": cached_extracted_text,
+                "extracted_text_preview": (
+                    cached_extracted_text[:500] + "..."
+                    if len(cached_extracted_text) > 500
+                    else cached_extracted_text
+                ),
+                "page_count": len(cached_page_texts),
+                "page_texts": cached_page_texts,
+                "result": cached_clauses,
+                "file_type": cached_file_type,
+            }
+
+        # ── Step 3: Cache MISS — run the full model pipeline ─────────────────
+        # IMPORTANT: raw text is passed to predict_cuad without normalisation.
+        # Normalisation strips legal capitalisation and punctuation that the
+        # keyword heuristics depend on (e.g. "INDEMNIFICATION", "GOVERNING LAW").
         result = model.predict_cuad(text)
 
-        # Map each clause to its page number
+        # Map each clause to its page number using char-offset ranges
         for clause in result:
             clause_start = clause.get('start_idx', 0)
             for page_info in page_texts:
@@ -107,15 +153,24 @@ async def upload_file(file: UploadFile = File(...)):
                     break
             if 'page_number' not in clause:
                 clause['page_number'] = 1
-        
+
+        # ── Step 4: Persist result to Redis (non-fatal on failure) ───────────
+        store_result(
+            doc_hash=doc_hash,
+            clauses=result,
+            page_texts=page_texts,
+            extracted_text=text,
+            file_type=file_type,
+        )
+
         return {
-            "status": "success", 
+            "status": "success",
             "extracted_text": text,
             "extracted_text_preview": text[:500] + "..." if len(text) > 500 else text,  # type: ignore[index]
             "page_count": len(page_texts),
             "page_texts": page_texts,
             "result": result,
-            "file_type": "pdf" if file.filename.lower().endswith('.pdf') else "docx"
+            "file_type": file_type,
         }
 
     except Exception as e:
