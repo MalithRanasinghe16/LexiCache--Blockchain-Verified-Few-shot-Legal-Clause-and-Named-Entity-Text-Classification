@@ -102,7 +102,9 @@ export default function ResultsSidebar({
             </button>
           </div>
           {verification && (
-            <p className="text-xs mt-2 text-amber-800">{verification.message}</p>
+            <p className="text-xs mt-2 text-amber-800">
+              {verification.message}
+            </p>
           )}
         </div>
       )}
@@ -121,7 +123,9 @@ export default function ResultsSidebar({
         {showHistory && (
           <div className="mt-3 space-y-2 max-h-44 overflow-y-auto">
             {history.length === 0 ? (
-              <p className="text-sm text-gray-600">No verification attempts yet.</p>
+              <p className="text-sm text-gray-600">
+                No verification attempts yet.
+              </p>
             ) : (
               history.map((item) => (
                 <div

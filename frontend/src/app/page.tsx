@@ -24,8 +24,9 @@ export default function Home() {
   const [documentText, setDocumentText] = useState<string>("");
   const [docHash, setDocHash] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("anonymous");
-  const [verification, setVerification] =
-    useState<VerificationState | null>(null);
+  const [verification, setVerification] = useState<VerificationState | null>(
+    null,
+  );
   const [history, setHistory] = useState<VerificationAttempt[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
@@ -410,7 +411,9 @@ export default function Home() {
   // This must also apply after teaching unknown clauses, as long as there is
   // still no verification history for the document.
   useEffect(() => {
-    const shouldDiscardOnLeave = Boolean(result && docHash && history.length === 0);
+    const shouldDiscardOnLeave = Boolean(
+      result && docHash && history.length === 0,
+    );
     if (!shouldDiscardOnLeave) {
       discardSentRef.current = false;
       return;
@@ -483,7 +486,9 @@ export default function Home() {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.detail || `Verify failed with status ${res.status}`);
+        throw new Error(
+          data.detail || `Verify failed with status ${res.status}`,
+        );
       }
 
       if (data.verification) {
@@ -509,7 +514,9 @@ export default function Home() {
     if (!next || !docHash) return;
 
     try {
-      const res = await fetch(`http://localhost:8000/document-history/${docHash}`);
+      const res = await fetch(
+        `http://localhost:8000/document-history/${docHash}`,
+      );
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data.history)) {
