@@ -1,11 +1,24 @@
-from typing import Optional
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from io import BytesIO
+from typing import Any, Dict, List, Optional
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import fitz  # PyMuPDF
 from docx import Document
 from src.ml_model import LexiCacheModel
-from src.deduplication import compute_doc_hash, get_cached_result, store_result
+from src.deduplication import (
+    can_user_verify,
+    compute_doc_hash,
+    create_verification_attempt,
+    discard_document_data,
+    get_cached_result,
+    get_verification_history,
+    get_verification_state,
+    has_verification_history,
+    record_user_teach,
+    register_upload,
+    store_result,
+)
 
 app = FastAPI(
     title="LexiCache API",
@@ -38,6 +51,19 @@ class RenameUnknownRequest(BaseModel):
     unknown_span: str
     new_type_name: str
     color: Optional[str] = None
+    doc_hash: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+class VerifyRequest(BaseModel):
+    doc_hash: str
+    user_id: str
+    clauses: List[Dict[str, Any]]
+
+
+class DiscardRequest(BaseModel):
+    doc_hash: str
+    user_id: Optional[str] = None
 
 class UpdateColorRequest(BaseModel):
     clause_type: str
@@ -64,7 +90,7 @@ async def predict_text(request: TextRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/upload-file")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymous")):
     """Upload a PDF or DOCX file, extract text, and classify clauses with page tracking.
 
     Redis deduplication: the document is fingerprinted by SHA-256 of its
@@ -97,7 +123,7 @@ async def upload_file(file: UploadFile = File(...)):
                 text += page_text + "\n"
             doc.close()
         else:
-            docx_doc = Document(content)
+            docx_doc = Document(BytesIO(content))
             text = "\n".join([p.text for p in docx_doc.paragraphs])
             page_texts.append({
                 'page': 1,
@@ -112,6 +138,7 @@ async def upload_file(file: UploadFile = File(...)):
         doc_hash = compute_doc_hash(text)
         print(f"[upload-file] doc_hash={doc_hash[:16]}... file={file.filename!r} ({len(text)} chars)")
 
+        register_upload(doc_hash, user_id)
         cached = get_cached_result(doc_hash)
         if cached is not None:
             # Cache HIT — rebuild the full response from stored data and return
@@ -123,9 +150,17 @@ async def upload_file(file: UploadFile = File(...)):
             cached_file_type = cached.get("file_type", file_type)
             analyzed_at = cached.get("analyzed_at", "")
 
+            unknown_count = len([
+                c for c in cached_clauses
+                if str(c.get("clause_type", "")) == "Unknown clause"
+            ])
+            verification = get_verification_state(doc_hash, user_id, unknown_count)
+            history = get_verification_history(doc_hash)
+
             return {
                 "status": "cache_hit",
                 "cached_at": analyzed_at,
+                "doc_hash": doc_hash,
                 "extracted_text": cached_extracted_text,
                 "extracted_text_preview": (
                     cached_extracted_text[:500] + "..."
@@ -136,6 +171,8 @@ async def upload_file(file: UploadFile = File(...)):
                 "page_texts": cached_page_texts,
                 "result": cached_clauses,
                 "file_type": cached_file_type,
+                "verification": verification,
+                "history": history,
             }
 
         # ── Step 3: Cache MISS — run the full model pipeline ─────────────────
@@ -163,14 +200,21 @@ async def upload_file(file: UploadFile = File(...)):
             file_type=file_type,
         )
 
+        unknown_count = len([r for r in result if r.get("clause_type") == "Unknown clause"])
+        verification = get_verification_state(doc_hash, user_id, unknown_count)
+        history = get_verification_history(doc_hash)
+
         return {
             "status": "success",
+            "doc_hash": doc_hash,
             "extracted_text": text,
             "extracted_text_preview": text[:500] + "..." if len(text) > 500 else text,  # type: ignore[index]
             "page_count": len(page_texts),
             "page_texts": page_texts,
             "result": result,
             "file_type": file_type,
+            "verification": verification,
+            "history": history,
         }
 
     except Exception as e:
@@ -253,19 +297,140 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
             raise HTTPException(status_code=500, detail="Failed to learn new clause type")
         
         updated_results = model.predict_cuad(request.contract_text)
+
+        if request.doc_hash and request.user_id:
+            record_user_teach(request.doc_hash, request.user_id)
+
+            # Keep dedup cache in sync with newly taught results.
+            cached = get_cached_result(request.doc_hash) or {}
+            store_result(
+                doc_hash=request.doc_hash,
+                clauses=updated_results,
+                page_texts=cached.get("page_texts", []),
+                extracted_text=cached.get("extracted_text", request.contract_text),
+                file_type=cached.get("file_type", "unknown"),
+            )
+
+        unknown_count = len([
+            c for c in updated_results if c.get("clause_type") == "Unknown clause"
+        ])
+        verification = None
+        history = []
+        if request.doc_hash and request.user_id:
+            verification = get_verification_state(request.doc_hash, request.user_id, unknown_count)
+            history = get_verification_history(request.doc_hash)
+
         stats = model.get_statistics()
         
         return {
             "status": "success",
             "message": f"Successfully learned '{request.new_type_name}'",
             "updated_results": updated_results,
-            "model_stats": stats
+            "model_stats": stats,
+            "verification": verification,
+            "history": history,
         }
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Rename operation failed: {str(e)}")
+
+
+@app.post("/verify-document")
+async def verify_document(request: VerifyRequest):
+    """
+    Create an immutable verification attempt for the current document analysis.
+
+    Rules:
+    - First uploader can verify any time while unknowns remain.
+    - Later users can verify only after teaching at least one unknown.
+    - If unknown_count is zero, verification is no longer needed.
+    """
+    try:
+        cached = get_cached_result(request.doc_hash)
+        if not cached:
+            raise HTTPException(
+                status_code=404,
+                detail="Document analysis not found in cache. Please upload the document again.",
+            )
+
+        # Authoritative verification source: server-side cached analysis.
+        # Do not trust client-provided clauses for permission checks or proof.
+        clauses = cached.get("clauses", [])
+        unknown_count = len([
+            c for c in clauses
+            if str(c.get("clause_type", "")) == "Unknown clause"
+        ])
+
+        allowed, reason = can_user_verify(request.doc_hash, request.user_id, unknown_count)
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason)
+
+        attempt = create_verification_attempt(
+            doc_hash=request.doc_hash,
+            user_id=request.user_id,
+            clauses=clauses,
+            unknown_count=unknown_count,
+        )
+        if attempt is None:
+            raise HTTPException(status_code=500, detail="Failed to persist verification attempt")
+
+        history = get_verification_history(request.doc_hash)
+        verification = get_verification_state(request.doc_hash, request.user_id, unknown_count)
+        return {
+            "status": "success",
+            "message": "Document verified! Permanent proof created on blockchain.",
+            "record": attempt,
+            "history": history,
+            "verification": verification,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
+
+
+@app.get("/document-history/{doc_hash}")
+async def document_history(doc_hash: str):
+    """Return verification history for a document hash."""
+    try:
+        history = get_verification_history(doc_hash)
+        return {
+            "status": "success",
+            "doc_hash": doc_hash,
+            "history": history,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"History lookup failed: {str(e)}")
+
+
+@app.post("/discard-document")
+async def discard_document(request: DiscardRequest):
+    """
+    Discard cached document data when a user leaves before verification.
+
+    Safety rule: if any verification attempt already exists, keep data/history.
+    """
+    try:
+        if has_verification_history(request.doc_hash):
+            return {
+                "status": "kept",
+                "message": "Document already verified; history preserved.",
+            }
+
+        deleted = discard_document_data(request.doc_hash)
+        if deleted:
+            return {
+                "status": "discarded",
+                "message": "Unverified document data discarded.",
+            }
+        return {
+            "status": "skipped",
+            "message": "Redis unavailable or document not found.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Discard failed: {str(e)}")
 
 @app.post("/update-color")
 async def update_clause_color(request: UpdateColorRequest):

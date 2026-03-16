@@ -28,6 +28,7 @@ export type PageTextContent = {
 
 export type AnalysisResult = {
   result: ClauseResult[];
+  doc_hash?: string;
   extracted_text?: string;
   extracted_text_preview?: string;
   page_count?: number;
@@ -39,4 +40,28 @@ export type AnalysisResult = {
   }[];
   file_type?: string;
   status?: string;
+  cached_at?: string;
+  verification?: VerificationState;
+  history?: VerificationAttempt[];
+};
+
+export type VerificationState = {
+  doc_hash: string;
+  unknown_count: number;
+  show_verify_button: boolean;
+  is_first_uploader: boolean;
+  user_taught_count: number;
+  can_verify: boolean;
+  message: string;
+};
+
+export type VerificationAttempt = {
+  attempt: number;
+  verified_at: string;
+  verified_by: string;
+  clause_count: number;
+  unknown_count: number;
+  snapshot_hash: string;
+  tx_hash: string;
+  blockchain_link: string;
 };

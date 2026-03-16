@@ -1,7 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { AnalysisResult, ClauseResult, PageTextContent } from "./types";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  AnalysisResult,
+  ClauseResult,
+  PageTextContent,
+  VerificationAttempt,
+  VerificationState,
+} from "./types";
 import AppHeader from "./components/AppHeader";
 import UploadForm from "./components/UploadForm";
 import DocumentViewer from "./components/DocumentViewer";
@@ -16,6 +22,15 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [fileType, setFileType] = useState<string>("pdf");
   const [documentText, setDocumentText] = useState<string>("");
+  const [docHash, setDocHash] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>("anonymous");
+  const [verification, setVerification] =
+    useState<VerificationState | null>(null);
+  const [history, setHistory] = useState<VerificationAttempt[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [reminderDismissed, setReminderDismissed] = useState(false);
+  const discardSentRef = useRef(false);
 
   // ── PDF viewer state ───────────────────────────────────────────────────
   const [numPages, setNumPages] = useState<number | null>(null);
@@ -51,6 +66,20 @@ export default function Home() {
   // ── Configure PDF.js worker (client-only) ─────────────────────────────
   useEffect(() => {
     setIsClient(true);
+
+    if (typeof window !== "undefined") {
+      const existing = localStorage.getItem("lexicache_user_id");
+      if (existing) {
+        setUserId(existing);
+      } else {
+        const generated =
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `user_${Date.now()}`;
+        localStorage.setItem("lexicache_user_id", generated);
+        setUserId(generated);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -161,6 +190,7 @@ export default function Home() {
       if (file) {
         const formData = new FormData();
         formData.append("file", file);
+        formData.append("user_id", userId);
         const res = await fetch("http://localhost:8000/upload-file", {
           method: "POST",
           body: formData,
@@ -175,6 +205,10 @@ export default function Home() {
         if (data.result && !Array.isArray(data.result))
           data.result = [data.result];
         setResult(data);
+        setDocHash(data.doc_hash || null);
+        setVerification(data.verification || null);
+        setHistory(data.history || []);
+        setReminderDismissed(false);
         setDocumentText(data.extracted_text || "");
         setFileType(data.file_type || "pdf");
       }
@@ -214,6 +248,12 @@ export default function Home() {
     setShowFilters(false);
     setDocumentText("");
     setFileType("pdf");
+    setDocHash(null);
+    setVerification(null);
+    setHistory([]);
+    setShowHistory(false);
+    setIsVerifying(false);
+    setReminderDismissed(false);
   };
 
   const handleToggleType = (type: string) => {
@@ -302,6 +342,8 @@ export default function Home() {
           unknown_span: selectedUnknownClause.span,
           new_type_name: newClauseTypeName.trim(),
           color: colorMap[newClauseTypeName.trim()] || generateRandomColor(),
+          doc_hash: docHash,
+          user_id: userId,
         }),
       });
       if (!res.ok) {
@@ -326,6 +368,12 @@ export default function Home() {
           return next;
         });
       }
+      if (data.verification) {
+        setVerification(data.verification);
+      }
+      if (Array.isArray(data.history)) {
+        setHistory(data.history);
+      }
       setShowRenameModal(false);
       setSelectedUnknownClause(null);
       setNewClauseTypeName("");
@@ -340,6 +388,136 @@ export default function Home() {
     setShowRenameModal(false);
     setSelectedUnknownClause(null);
     setNewClauseTypeName("");
+  };
+
+  // Warn user on refresh/close whenever this document has NOT been verified yet.
+  useEffect(() => {
+    const shouldWarn = Boolean(result && docHash && history.length === 0);
+    if (!shouldWarn) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [result, docHash, history.length]);
+
+  // If the user leaves anyway, immediately discard unverified document data.
+  // This must also apply after teaching unknown clauses, as long as there is
+  // still no verification history for the document.
+  useEffect(() => {
+    const shouldDiscardOnLeave = Boolean(result && docHash && history.length === 0);
+    if (!shouldDiscardOnLeave) {
+      discardSentRef.current = false;
+      return;
+    }
+
+    const sendDiscard = () => {
+      if (!docHash || discardSentRef.current) return;
+      discardSentRef.current = true;
+
+      const payload = JSON.stringify({
+        doc_hash: docHash,
+        user_id: userId,
+      });
+
+      if (navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: "application/json" });
+        navigator.sendBeacon("http://localhost:8000/discard-document", blob);
+      } else {
+        fetch("http://localhost:8000/discard-document", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true,
+        }).catch(() => {
+          // best-effort discard during unload
+        });
+      }
+    };
+
+    const handlePageHide = () => {
+      sendDiscard();
+    };
+
+    const handleBeforeUnload = () => {
+      // Fire discard in addition to browser's native leave confirmation.
+      // This runs on actual close/refresh navigation acceptance.
+      sendDiscard();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // Extra mobile/browser compatibility path for tab close/background.
+        sendDiscard();
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [result, docHash, history.length, userId]);
+
+  const handleVerify = async () => {
+    if (!docHash || !result?.result) return;
+    setIsVerifying(true);
+    try {
+      const res = await fetch("http://localhost:8000/verify-document", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_hash: docHash,
+          user_id: userId,
+          clauses: result.result,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.detail || `Verify failed with status ${res.status}`);
+      }
+
+      if (data.verification) {
+        setVerification(data.verification);
+      }
+      if (Array.isArray(data.history)) {
+        setHistory(data.history);
+      }
+      setShowHistory(true);
+      alert(
+        `${data.message || "Document verified! Permanent proof created on blockchain."}\n${data.record?.blockchain_link || ""}`,
+      );
+    } catch (err: any) {
+      alert(err.message || "Verification failed");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleToggleHistory = async () => {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (!next || !docHash) return;
+
+    try {
+      const res = await fetch(`http://localhost:8000/document-history/${docHash}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.history)) {
+        setHistory(data.history);
+      }
+    } catch {
+      // non-fatal: keep currently loaded history
+    }
   };
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -387,8 +565,16 @@ export default function Home() {
               searchTerm={searchTerm}
               highlightedText={highlightedText}
               activeClause={activeClause}
+              verification={verification}
+              history={history}
+              showHistory={showHistory}
+              isVerifying={isVerifying}
+              reminderDismissed={reminderDismissed}
               showFilters={showFilters}
               onToggleFilters={() => setShowFilters(!showFilters)}
+              onVerify={handleVerify}
+              onToggleHistory={handleToggleHistory}
+              onDismissReminder={() => setReminderDismissed(true)}
               onToggleType={handleToggleType}
               onConfidenceChange={setMinConfidence}
               onSelectAll={handleSelectAll}

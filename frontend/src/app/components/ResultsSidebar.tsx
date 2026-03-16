@@ -1,5 +1,5 @@
 import { Filter } from "lucide-react";
-import { ClauseResult } from "../types";
+import { ClauseResult, VerificationAttempt, VerificationState } from "../types";
 import FilterPanel from "./FilterPanel";
 import ClauseList from "./ClauseList";
 import ColorLegend from "./ColorLegend";
@@ -14,7 +14,15 @@ type Props = {
   highlightedText: string;
   showFilters: boolean;
   activeClause: ClauseResult | null;
+  verification: VerificationState | null;
+  history: VerificationAttempt[];
+  showHistory: boolean;
+  isVerifying: boolean;
+  reminderDismissed: boolean;
   onToggleFilters: () => void;
+  onVerify: () => void;
+  onToggleHistory: () => void;
+  onDismissReminder: () => void;
   onToggleType: (type: string) => void;
   onConfidenceChange: (val: number) => void;
   onSelectAll: () => void;
@@ -34,7 +42,15 @@ export default function ResultsSidebar({
   highlightedText,
   showFilters,
   activeClause,
+  verification,
+  history,
+  showHistory,
+  isVerifying,
+  reminderDismissed,
   onToggleFilters,
+  onVerify,
+  onToggleHistory,
+  onDismissReminder,
   onToggleType,
   onConfidenceChange,
   onSelectAll,
@@ -61,8 +77,76 @@ export default function ResultsSidebar({
     (c) => c.clause_type === "Unknown clause",
   ).length;
 
+  const showVerify = verification?.show_verify_button ?? unknownCount > 0;
+
   return (
     <div className="lg:w-2/5 p-8 space-y-6 max-h-screen overflow-y-auto">
+      {showVerify && !reminderDismissed && (
+        <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-amber-900">
+          <p className="text-sm font-medium">
+            Verify this document to create blockchain proof.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={onVerify}
+              disabled={isVerifying || !(verification?.can_verify ?? false)}
+              className="px-3 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              {isVerifying ? "Verifying..." : "Verify"}
+            </button>
+            <button
+              onClick={onDismissReminder}
+              className="px-3 py-2 text-sm rounded-lg bg-white border border-amber-300 hover:bg-amber-100"
+            >
+              Dismiss
+            </button>
+          </div>
+          {verification && (
+            <p className="text-xs mt-2 text-amber-800">{verification.message}</p>
+          )}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-gray-200 p-4 bg-gray-50">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-black">Verification History</h3>
+          <button
+            onClick={onToggleHistory}
+            className="px-3 py-1.5 text-sm bg-black text-white rounded-lg hover:bg-gray-800"
+          >
+            {showHistory ? "Hide History" : "Show History"}
+          </button>
+        </div>
+
+        {showHistory && (
+          <div className="mt-3 space-y-2 max-h-44 overflow-y-auto">
+            {history.length === 0 ? (
+              <p className="text-sm text-gray-600">No verification attempts yet.</p>
+            ) : (
+              history.map((item) => (
+                <div
+                  key={`${item.attempt}-${item.tx_hash}`}
+                  className="rounded-lg border border-gray-200 bg-white p-3"
+                >
+                  <p className="text-sm font-medium text-black">
+                    Attempt {item.attempt}: {item.clause_count} clauses
+                  </p>
+                  <p className="text-xs text-gray-600">{item.verified_at}</p>
+                  <a
+                    href={item.blockchain_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    View blockchain record
+                  </a>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Detected Clauses Header */}
       <div>
         <div className="flex items-center justify-between mb-4">
