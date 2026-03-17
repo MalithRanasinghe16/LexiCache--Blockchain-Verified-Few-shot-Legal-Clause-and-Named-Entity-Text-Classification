@@ -97,6 +97,10 @@ def _doc_key(doc_hash: str) -> str:
     return f"doc:{doc_hash}"
 
 
+def _history_key(doc_hash: str) -> str:
+    return f"history:{doc_hash}"
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -273,6 +277,9 @@ def create_verification_attempt(
     user_id: str,
     clauses: List[Dict[str, Any]],
     unknown_count: int,
+    tx_hash: Optional[str] = None,
+    blockchain_link: Optional[str] = None,
+    snapshot_hash: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Append immutable verification attempt metadata to document history.
@@ -289,18 +296,24 @@ def create_verification_attempt(
     history = meta.get("verification_history")
     attempts: List[Dict[str, Any]] = history if isinstance(history, list) else []
     verified_at = _now_iso()
-    payload = {
-        "doc_hash": doc_hash,
-        "verified_at": verified_at,
-        "verified_by": user,
-        "clause_count": len(clauses),
-        "unknown_count": unknown_count,
-        "clauses": clauses,
-    }
-    snapshot_hash = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
-    tx_hash = hashlib.sha256(f"tx:{snapshot_hash}:{verified_at}".encode("utf-8")).hexdigest()
+    if snapshot_hash is None:
+        payload = {
+            "doc_hash": doc_hash,
+            "verified_at": verified_at,
+            "verified_by": user,
+            "clause_count": len(clauses),
+            "unknown_count": unknown_count,
+            "clauses": clauses,
+        }
+        snapshot_hash = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+
+    if tx_hash is None:
+        tx_hash = hashlib.sha256(f"tx:{snapshot_hash}:{verified_at}".encode("utf-8")).hexdigest()
+
+    if blockchain_link is None:
+        blockchain_link = f"https://blockchain.lexicache.app/proof/{tx_hash}"
 
     attempt = {
         "attempt": len(attempts) + 1,
@@ -310,7 +323,7 @@ def create_verification_attempt(
         "unknown_count": unknown_count,
         "snapshot_hash": snapshot_hash,
         "tx_hash": tx_hash,
-        "blockchain_link": f"https://blockchain.lexicache.app/proof/{tx_hash}",
+        "blockchain_link": blockchain_link,
     }
 
     attempts.append(attempt)
@@ -319,6 +332,22 @@ def create_verification_attempt(
     if not _save_document_meta(doc_hash, meta):
         return None
     return attempt
+
+
+def push_history_entry(doc_hash: str, entry: Dict[str, Any]) -> bool:
+    """Append a blockchain verification entry to the Redis history list."""
+    client = _get_redis()
+    if client is None:
+        return False
+
+    try:
+        client.rpush(_history_key(doc_hash), json.dumps(entry))
+        client.expire(_history_key(doc_hash), CACHE_TTL)
+        return True
+    except Exception as exc:
+        print(f"[Redis] push_history_entry failed for doc:{doc_hash[:16]}...: {exc}")
+        logger.warning("[Redis] push_history_entry failed: %s", exc)
+        return False
 
 
 def has_verification_history(doc_hash: str) -> bool:

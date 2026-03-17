@@ -1,10 +1,16 @@
 from io import BytesIO
+import hashlib
+import json
+import os
+import time
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
 import fitz  # PyMuPDF
 from docx import Document
+from web3 import Web3
 from src.ml_model import LexiCacheModel
 from src.deduplication import (
     can_user_verify,
@@ -15,10 +21,16 @@ from src.deduplication import (
     get_verification_history,
     get_verification_state,
     has_verification_history,
+    push_history_entry,
     record_user_teach,
     register_upload,
     store_result,
 )
+
+# .env example (do not commit real secrets):
+# PRIVATE_KEY=0xyour_wallet_private_key
+# SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/your_project_id
+load_dotenv()
 
 app = FastAPI(
     title="LexiCache API",
@@ -68,6 +80,78 @@ class DiscardRequest(BaseModel):
 class UpdateColorRequest(BaseModel):
     clause_type: str
     color: str
+
+
+def _sha256_json(payload: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _send_sepolia_verification_tx(
+    doc_hash: str,
+    clause_types: List[str],
+    analysis_hash: str,
+) -> Dict[str, Any]:
+    rpc_url = (os.getenv("SEPOLIA_RPC_URL") or "").strip()
+    private_key = (os.getenv("PRIVATE_KEY") or "").strip()
+
+    if not rpc_url:
+        raise RuntimeError("SEPOLIA_RPC_URL is not set in .env")
+    if not private_key:
+        raise RuntimeError("PRIVATE_KEY is not set in .env")
+
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+    if not w3.is_connected():
+        raise RuntimeError("Unable to connect to Sepolia RPC endpoint")
+
+    account = w3.eth.account.from_key(private_key)
+    timestamp = int(time.time())
+
+    chain_id = w3.eth.chain_id
+    if chain_id != 11155111:
+        raise RuntimeError(f"Connected chain_id={chain_id}, expected Sepolia (11155111)")
+
+    onchain_payload = {
+        "doc_hash": doc_hash,
+        "clause_types": clause_types,
+        "timestamp": timestamp,
+        "analysis_hash": analysis_hash,
+    }
+    data_hex = w3.to_hex(text=json.dumps(onchain_payload, sort_keys=True, separators=(",", ":")))
+
+    nonce = w3.eth.get_transaction_count(account.address, "pending")
+    latest_block = w3.eth.get_block("latest")
+    base_fee = int(latest_block.get("baseFeePerGas", w3.eth.gas_price))
+    priority_fee = w3.to_wei(2, "gwei")
+    max_fee = (base_fee * 2) + priority_fee
+
+    tx = {
+        "from": account.address,
+        "to": account.address,
+        "value": 0,
+        "data": data_hex,
+        "nonce": nonce,
+        "chainId": 11155111,
+        "type": 2,
+        "gas": 150000,
+        "maxFeePerGas": max_fee,
+        "maxPriorityFeePerGas": priority_fee,
+    }
+
+    signed = account.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+    if int(receipt.status) != 1:
+        raise RuntimeError("Transaction mined but failed (status=0)")
+
+    tx_hash_hex = tx_hash.hex()
+    return {
+        "tx_hash": tx_hash_hex,
+        "explorer_link": f"https://sepolia.etherscan.io/tx/{tx_hash_hex}",
+        "timestamp": timestamp,
+        "payload": onchain_payload,
+    }
 
 @app.get("/")
 async def root():
@@ -337,6 +421,7 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
         raise HTTPException(status_code=500, detail=f"Rename operation failed: {str(e)}")
 
 
+@app.post("/verify")
 @app.post("/verify-document")
 async def verify_document(request: VerifyRequest):
     """
@@ -367,11 +452,48 @@ async def verify_document(request: VerifyRequest):
         if not allowed:
             raise HTTPException(status_code=403, detail=reason)
 
+        clause_types = sorted({
+            str(c.get("clause_type", "Unknown clause"))
+            for c in clauses
+            if c.get("clause_type")
+        })
+        analysis_hash = _sha256_json(cached)
+
+        try:
+            tx_result = _send_sepolia_verification_tx(
+                doc_hash=request.doc_hash,
+                clause_types=clause_types,
+                analysis_hash=analysis_hash,
+            )
+        except Exception as tx_exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Blockchain transaction failed: {str(tx_exc)}",
+            )
+
+        history_entry = {
+            "doc_hash": request.doc_hash,
+            "verified_by": request.user_id,
+            "clause_types": clause_types,
+            "timestamp": tx_result["timestamp"],
+            "analysis_hash": analysis_hash,
+            "tx_hash": tx_result["tx_hash"],
+            "explorer_link": tx_result["explorer_link"],
+        }
+        if not push_history_entry(request.doc_hash, history_entry):
+            raise HTTPException(
+                status_code=500,
+                detail="Blockchain transaction succeeded but Redis history write failed",
+            )
+
         attempt = create_verification_attempt(
             doc_hash=request.doc_hash,
             user_id=request.user_id,
             clauses=clauses,
             unknown_count=unknown_count,
+            tx_hash=tx_result["tx_hash"],
+            blockchain_link=tx_result["explorer_link"],
+            snapshot_hash=analysis_hash,
         )
         if attempt is None:
             raise HTTPException(status_code=500, detail="Failed to persist verification attempt")
@@ -379,8 +501,10 @@ async def verify_document(request: VerifyRequest):
         history = get_verification_history(request.doc_hash)
         verification = get_verification_state(request.doc_hash, request.user_id, unknown_count)
         return {
-            "status": "success",
-            "message": "Document verified! Permanent proof created on blockchain.",
+            "status": "verified",
+            "tx_hash": tx_result["tx_hash"],
+            "explorer_link": tx_result["explorer_link"],
+            "message": "Document verified on Sepolia testnet.",
             "record": attempt,
             "history": history,
             "verification": verification,
