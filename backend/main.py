@@ -10,21 +10,29 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import fitz  # PyMuPDF
 from docx import Document
-from web3 import Web3
 from src.ml_model import LexiCacheModel
 from src.deduplication import (
+    add_pending_teach,
     can_user_verify,
+    clear_pending_teaches,
     compute_doc_hash,
     create_verification_attempt,
     discard_document_data,
     get_cached_result,
+    get_pending_teaches,
     get_verification_history,
     get_verification_state,
     has_verification_history,
+    has_open_verification_cycle,
     push_history_entry,
     record_user_teach,
     register_upload,
+    should_discard_on_leave,
     store_result,
+)
+from src.history_store import (
+    append_verification_attempt as append_mongo_verification_attempt,
+    get_verification_history as get_mongo_verification_history,
 )
 
 # .env example (do not commit real secrets):
@@ -88,11 +96,56 @@ def _sha256_json(payload: Any) -> str:
     ).hexdigest()
 
 
+def _normalize_span_key(text: str) -> str:
+    return " ".join(text.split()).strip().lower()
+
+
+def _apply_pending_teaches_to_results(
+    results: List[Dict[str, Any]],
+    pending_teaches: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Apply staged teach labels to matching spans without committing model weights."""
+    span_to_label: Dict[str, str] = {}
+    for teach in pending_teaches:
+        span = str(teach.get("span", "")).strip()
+        label = str(teach.get("label", "")).strip()
+        if span and label:
+            span_to_label[_normalize_span_key(span)] = label
+
+    if not span_to_label:
+        return results
+
+    patched: List[Dict[str, Any]] = []
+    for clause in results:
+        entry = dict(clause)
+        span_key = _normalize_span_key(str(entry.get("span", "")))
+        forced_label = span_to_label.get(span_key)
+        if forced_label:
+            entry["clause_type"] = forced_label
+            try:
+                existing_conf = float(entry.get("confidence", 0.0))
+            except Exception:
+                existing_conf = 0.0
+            entry["confidence"] = max(existing_conf, 0.95)
+            entry["source"] = "pending_feedback"
+            entry["needs_review"] = False
+        patched.append(entry)
+
+    return patched
+
+
 def _send_sepolia_verification_tx(
     doc_hash: str,
     clause_types: List[str],
-    analysis_hash: str,
 ) -> Dict[str, Any]:
+    try:
+        from web3 import Web3
+    except Exception as exc:
+        raise RuntimeError(
+            "web3 runtime dependency is unavailable in this Python environment. "
+            "Use a Python 3.10/3.11 environment with compatible web3 dependencies."
+        ) from exc
+
     rpc_url = (os.getenv("SEPOLIA_RPC_URL") or "").strip()
     private_key = (os.getenv("PRIVATE_KEY") or "").strip()
 
@@ -106,52 +159,48 @@ def _send_sepolia_verification_tx(
         raise RuntimeError("Unable to connect to Sepolia RPC endpoint")
 
     account = w3.eth.account.from_key(private_key)
-    timestamp = int(time.time())
-
     chain_id = w3.eth.chain_id
     if chain_id != 11155111:
         raise RuntimeError(f"Connected chain_id={chain_id}, expected Sepolia (11155111)")
 
-    onchain_payload = {
-        "doc_hash": doc_hash,
-        "clause_types": clause_types,
-        "timestamp": timestamp,
-        "analysis_hash": analysis_hash,
-    }
-    data_hex = w3.to_hex(text=json.dumps(onchain_payload, sort_keys=True, separators=(",", ":")))
+    payload_seed = doc_hash + json.dumps(clause_types, sort_keys=True, ensure_ascii=False)
+    data_hex = "0x" + hashlib.sha256(payload_seed.encode("utf-8")).hexdigest()
 
-    nonce = w3.eth.get_transaction_count(account.address, "pending")
-    latest_block = w3.eth.get_block("latest")
-    base_fee = int(latest_block.get("baseFeePerGas", w3.eth.gas_price))
-    priority_fee = w3.to_wei(2, "gwei")
-    max_fee = (base_fee * 2) + priority_fee
-
-    tx = {
+    nonce = w3.eth.get_transaction_count(account.address)
+    tx_for_estimate = {
         "from": account.address,
-        "to": account.address,
+        "to": "0x0000000000000000000000000000000000000000",
         "value": 0,
         "data": data_hex,
         "nonce": nonce,
         "chainId": 11155111,
-        "type": 2,
-        "gas": 150000,
-        "maxFeePerGas": max_fee,
-        "maxPriorityFeePerGas": priority_fee,
+    }
+    gas_estimate = w3.eth.estimate_gas(tx_for_estimate)
+    tx = {
+        **tx_for_estimate,
+        "gas": gas_estimate,
+        "gasPrice": w3.eth.gas_price,
     }
 
     signed = account.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
     if int(receipt.status) != 1:
         raise RuntimeError("Transaction mined but failed (status=0)")
 
-    tx_hash_hex = tx_hash.hex()
+    tx_hash_hex = receipt.transactionHash.hex()
     return {
         "tx_hash": tx_hash_hex,
         "explorer_link": f"https://sepolia.etherscan.io/tx/{tx_hash_hex}",
-        "timestamp": timestamp,
-        "payload": onchain_payload,
     }
+
+
+def _get_effective_verification_history(doc_hash: str) -> List[Dict[str, Any]]:
+    """Prefer Redis history; fall back to Mongo durable history when needed."""
+    redis_history = get_verification_history(doc_hash)
+    if redis_history:
+        return redis_history
+    return get_mongo_verification_history(doc_hash)
 
 @app.get("/")
 async def root():
@@ -239,7 +288,7 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
                 if str(c.get("clause_type", "")) == "Unknown clause"
             ])
             verification = get_verification_state(doc_hash, user_id, unknown_count)
-            history = get_verification_history(doc_hash)
+            history = _get_effective_verification_history(doc_hash)
 
             return {
                 "status": "cache_hit",
@@ -286,7 +335,7 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
 
         unknown_count = len([r for r in result if r.get("clause_type") == "Unknown clause"])
         verification = get_verification_state(doc_hash, user_id, unknown_count)
-        history = get_verification_history(doc_hash)
+        history = _get_effective_verification_history(doc_hash)
 
         return {
             "status": "success",
@@ -369,46 +418,50 @@ async def get_clause_types_with_colors():
 
 @app.post("/rename-unknown")
 async def rename_unknown_clause(request: RenameUnknownRequest):
-    """Rename an unknown clause to a user-defined type, teach the model, and re-classify."""
+    """Stage unknown-clause feedback temporarily and re-classify view output."""
     try:
-        success = model.learn_from_feedback(
-            clause_text=request.unknown_span,
-            correct_label=request.new_type_name,
-            color=request.color
+        if not request.doc_hash or not request.user_id:
+            raise HTTPException(status_code=400, detail="doc_hash and user_id are required for staged teaching")
+
+        staged = add_pending_teach(
+            doc_hash=request.doc_hash,
+            user_id=request.user_id,
+            span=request.unknown_span,
+            label=request.new_type_name,
+            color=request.color,
         )
-        
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to learn new clause type")
-        
+        if not staged:
+            raise HTTPException(status_code=500, detail="Failed to stage feedback")
+
+        record_user_teach(request.doc_hash, request.user_id)
+
+        pending_teaches = get_pending_teaches(request.doc_hash)
         updated_results = model.predict_cuad(request.contract_text)
+        updated_results = _apply_pending_teaches_to_results(updated_results, pending_teaches)
 
-        if request.doc_hash and request.user_id:
-            record_user_teach(request.doc_hash, request.user_id)
-
-            # Keep dedup cache in sync with newly taught results.
-            cached = get_cached_result(request.doc_hash) or {}
-            store_result(
-                doc_hash=request.doc_hash,
-                clauses=updated_results,
-                page_texts=cached.get("page_texts", []),
-                extracted_text=cached.get("extracted_text", request.contract_text),
-                file_type=cached.get("file_type", "unknown"),
-            )
+        # Keep dedup cache in sync with staged re-classified output.
+        cached = get_cached_result(request.doc_hash) or {}
+        store_result(
+            doc_hash=request.doc_hash,
+            clauses=updated_results,
+            page_texts=cached.get("page_texts", []),
+            extracted_text=cached.get("extracted_text", request.contract_text),
+            file_type=cached.get("file_type", "unknown"),
+        )
 
         unknown_count = len([
             c for c in updated_results if c.get("clause_type") == "Unknown clause"
         ])
         verification = None
         history = []
-        if request.doc_hash and request.user_id:
-            verification = get_verification_state(request.doc_hash, request.user_id, unknown_count)
-            history = get_verification_history(request.doc_hash)
+        verification = get_verification_state(request.doc_hash, request.user_id, unknown_count)
+        history = _get_effective_verification_history(request.doc_hash)
 
         stats = model.get_statistics()
         
         return {
             "status": "success",
-            "message": f"Successfully learned '{request.new_type_name}'",
+            "message": f"Staged '{request.new_type_name}'. Click Verify to commit learning.",
             "updated_results": updated_results,
             "model_stats": stats,
             "verification": verification,
@@ -428,9 +481,9 @@ async def verify_document(request: VerifyRequest):
     Create an immutable verification attempt for the current document analysis.
 
     Rules:
-    - First uploader can verify any time while unknowns remain.
+    - First uploader can verify while verify-cycle is open.
     - Later users can verify only after teaching at least one unknown.
-    - If unknown_count is zero, verification is no longer needed.
+    - Teaching can reopen verification even if unknown_count becomes zero.
     """
     try:
         cached = get_cached_result(request.doc_hash)
@@ -440,9 +493,12 @@ async def verify_document(request: VerifyRequest):
                 detail="Document analysis not found in cache. Please upload the document again.",
             )
 
+        pending_teaches = get_pending_teaches(request.doc_hash)
+
         # Authoritative verification source: server-side cached analysis.
         # Do not trust client-provided clauses for permission checks or proof.
         clauses = cached.get("clauses", [])
+        clauses = _apply_pending_teaches_to_results(clauses, pending_teaches)
         unknown_count = len([
             c for c in clauses
             if str(c.get("clause_type", "")) == "Unknown clause"
@@ -452,33 +508,73 @@ async def verify_document(request: VerifyRequest):
         if not allowed:
             raise HTTPException(status_code=403, detail=reason)
 
+        # Commit staged teaches to support set only at verify time.
+        if pending_teaches:
+            for teach in pending_teaches:
+                span = str(teach.get("span", "")).strip()
+                label = str(teach.get("label", "")).strip()
+                color = teach.get("color")
+                if not span or not label:
+                    continue
+                committed = model.learn_from_feedback(
+                    clause_text=span,
+                    correct_label=label,
+                    color=str(color) if color else None,
+                )
+                if not committed:
+                    raise HTTPException(status_code=500, detail="Failed to commit staged feedback during verify")
+
+            extracted_text = str(cached.get("extracted_text", ""))
+            if extracted_text:
+                clauses = model.predict_cuad(extracted_text)
+                clauses = _apply_pending_teaches_to_results(clauses, pending_teaches)
+                store_result(
+                    doc_hash=request.doc_hash,
+                    clauses=clauses,
+                    page_texts=cached.get("page_texts", []),
+                    extracted_text=extracted_text,
+                    file_type=str(cached.get("file_type", "unknown")),
+                )
+
+            clear_pending_teaches(request.doc_hash)
+
+            unknown_count = len([
+                c for c in clauses
+                if str(c.get("clause_type", "")) == "Unknown clause"
+            ])
+
         clause_types = sorted({
             str(c.get("clause_type", "Unknown clause"))
             for c in clauses
             if c.get("clause_type")
         })
         analysis_hash = _sha256_json(cached)
+        print(f"Sending tx for doc {request.doc_hash}")
 
         try:
             tx_result = _send_sepolia_verification_tx(
                 doc_hash=request.doc_hash,
                 clause_types=clause_types,
-                analysis_hash=analysis_hash,
             )
         except Exception as tx_exc:
+            error_text = str(tx_exc)
+            if "insufficient funds" in error_text.lower():
+                error_text = "Insufficient funds"
+            elif "private key" in error_text.lower() or "invalid" in error_text.lower():
+                error_text = "Invalid key"
             raise HTTPException(
                 status_code=502,
-                detail=f"Blockchain transaction failed: {str(tx_exc)}",
+                detail=f"Blockchain transaction failed: {error_text}",
             )
 
+        existing_history = _get_effective_verification_history(request.doc_hash)
+        attempt_count = len(existing_history) + 1
+        verified_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         history_entry = {
-            "doc_hash": request.doc_hash,
-            "verified_by": request.user_id,
-            "clause_types": clause_types,
-            "timestamp": tx_result["timestamp"],
-            "analysis_hash": analysis_hash,
+            "attempt": attempt_count,
+            "date": verified_at_iso,
             "tx_hash": tx_result["tx_hash"],
-            "explorer_link": tx_result["explorer_link"],
+            "clause_summary": json.dumps(clause_types, ensure_ascii=False),
         }
         if not push_history_entry(request.doc_hash, history_entry):
             raise HTTPException(
@@ -491,6 +587,7 @@ async def verify_document(request: VerifyRequest):
             user_id=request.user_id,
             clauses=clauses,
             unknown_count=unknown_count,
+            attempt_number=attempt_count,
             tx_hash=tx_result["tx_hash"],
             blockchain_link=tx_result["explorer_link"],
             snapshot_hash=analysis_hash,
@@ -498,15 +595,17 @@ async def verify_document(request: VerifyRequest):
         if attempt is None:
             raise HTTPException(status_code=500, detail="Failed to persist verification attempt")
 
-        history = get_verification_history(request.doc_hash)
+        append_mongo_verification_attempt(request.doc_hash, attempt)
+
+        history = _get_effective_verification_history(request.doc_hash)
         verification = get_verification_state(request.doc_hash, request.user_id, unknown_count)
         return {
             "status": "verified",
             "tx_hash": tx_result["tx_hash"],
             "explorer_link": tx_result["explorer_link"],
+            "history": history,
             "message": "Document verified on Sepolia testnet.",
             "record": attempt,
-            "history": history,
             "verification": verification,
         }
     except HTTPException:
@@ -519,7 +618,7 @@ async def verify_document(request: VerifyRequest):
 async def document_history(doc_hash: str):
     """Return verification history for a document hash."""
     try:
-        history = get_verification_history(doc_hash)
+        history = _get_effective_verification_history(doc_hash)
         return {
             "status": "success",
             "doc_hash": doc_hash,
@@ -532,22 +631,32 @@ async def document_history(doc_hash: str):
 @app.post("/discard-document")
 async def discard_document(request: DiscardRequest):
     """
-    Discard cached document data when a user leaves before verification.
+    Discard cached document data when a user leaves with an open verify cycle.
 
-    Safety rule: if any verification attempt already exists, keep data/history.
+    Rules:
+    - If document was never verified, discard.
+    - If user taught after a prior verification and did not verify again,
+      discard that open cycle data as well.
+    - Keep only fully verified/closed cycles.
     """
     try:
-        if has_verification_history(request.doc_hash):
+        if has_verification_history(request.doc_hash) and not has_open_verification_cycle(request.doc_hash):
             return {
                 "status": "kept",
                 "message": "Document already verified; history preserved.",
+            }
+
+        if not should_discard_on_leave(request.doc_hash):
+            return {
+                "status": "skipped",
+                "message": "Redis unavailable or document not found.",
             }
 
         deleted = discard_document_data(request.doc_hash)
         if deleted:
             return {
                 "status": "discarded",
-                "message": "Unverified document data discarded.",
+                "message": "Open/unverified document cycle data discarded.",
             }
         return {
             "status": "skipped",

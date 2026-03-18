@@ -371,6 +371,9 @@ export default function Home() {
       }
       if (data.verification) {
         setVerification(data.verification);
+        if (data.verification.show_verify_button) {
+          setReminderDismissed(false);
+        }
       }
       if (Array.isArray(data.history)) {
         setHistory(data.history);
@@ -393,7 +396,9 @@ export default function Home() {
 
   // Warn user on refresh/close whenever this document has NOT been verified yet.
   useEffect(() => {
-    const shouldWarn = Boolean(result && docHash && history.length === 0);
+    const shouldWarn = Boolean(
+      result && docHash && verification?.show_verify_button,
+    );
     if (!shouldWarn) return;
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -405,14 +410,14 @@ export default function Home() {
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, [result, docHash, history.length]);
+  }, [result, docHash, verification?.show_verify_button]);
 
   // If the user leaves anyway, immediately discard unverified document data.
   // This must also apply after teaching unknown clauses, as long as there is
-  // still no verification history for the document.
+  // an open verification cycle for the document.
   useEffect(() => {
     const shouldDiscardOnLeave = Boolean(
-      result && docHash && history.length === 0,
+      result && docHash && verification?.show_verify_button,
     );
     if (!shouldDiscardOnLeave) {
       discardSentRef.current = false;
@@ -468,7 +473,7 @@ export default function Home() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [result, docHash, history.length, userId]);
+  }, [result, docHash, verification?.show_verify_button, userId]);
 
   const handleVerify = async () => {
     if (!docHash || !result?.result) return;

@@ -41,6 +41,20 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Backend Environment Variables
+
+Create `backend/.env` for blockchain verification and optional durable history:
+
+```env
+PRIVATE_KEY=0xyour_wallet_private_key
+SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/your_project_id
+
+# Optional: durable history beyond Redis TTL
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB_NAME=lexicache
+MONGODB_HISTORY_COLLECTION=document_history
+```
+
 ### Frontend
 
 ```bash

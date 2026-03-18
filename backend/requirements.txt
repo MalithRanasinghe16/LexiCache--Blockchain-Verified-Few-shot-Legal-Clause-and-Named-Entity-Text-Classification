@@ -88,6 +88,7 @@ pyarrow==23.0.1
 pyarrow-hotfix==0.7
 pycodestyle==2.11.1
 pycryptodome==3.23.0
+pymongo==4.15.3
 pydantic==2.12.5
 pydantic_core==2.41.5
 pydeck==0.9.1

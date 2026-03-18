@@ -110,6 +110,7 @@ def _default_meta(user_id: str) -> Dict[str, Any]:
         "first_uploader": user_id,
         "first_uploaded_at": _now_iso(),
         "taught_users": {},
+        "pending_teaches": [],
         "verification_history": [],
         "last_verified_taught_total": 0,
     }
@@ -180,6 +181,60 @@ def get_user_teach_count(doc_hash: str, user_id: str) -> int:
     return int(taught_map.get(user, 0))
 
 
+def get_pending_teaches(doc_hash: str) -> List[Dict[str, Any]]:
+    """Return staged teach actions waiting for verification commit."""
+    meta = get_document_meta(doc_hash)
+    if not meta:
+        return []
+    pending = meta.get("pending_teaches")
+    return pending if isinstance(pending, list) else []
+
+
+def add_pending_teach(
+    doc_hash: str,
+    user_id: str,
+    span: str,
+    label: str,
+    color: Optional[str] = None,
+) -> bool:
+    """Stage a teach action in metadata; committed to support set only on verify."""
+    user = (user_id or "anonymous").strip() or "anonymous"
+    meta = get_document_meta(doc_hash)
+    if meta is None:
+        meta = _default_meta(user)
+
+    pending = meta.get("pending_teaches")
+    entries: List[Dict[str, Any]] = pending if isinstance(pending, list) else []
+
+    # Deduplicate by (user, span, label) so repeated clicks don't create duplicates.
+    filtered = [
+        e for e in entries
+        if not (
+            isinstance(e, dict)
+            and str(e.get("user_id", "")) == user
+            and str(e.get("span", "")) == span
+            and str(e.get("label", "")) == label
+        )
+    ]
+    filtered.append({
+        "user_id": user,
+        "span": span,
+        "label": label,
+        "color": color,
+        "staged_at": _now_iso(),
+    })
+    meta["pending_teaches"] = filtered
+    return _save_document_meta(doc_hash, meta)
+
+
+def clear_pending_teaches(doc_hash: str) -> bool:
+    meta = get_document_meta(doc_hash)
+    if meta is None:
+        return False
+    meta["pending_teaches"] = []
+    return _save_document_meta(doc_hash, meta)
+
+
 def _get_total_teach_count(meta: Optional[Dict[str, Any]]) -> int:
     if not meta:
         return 0
@@ -225,13 +280,9 @@ def is_first_uploader(doc_hash: str, user_id: str) -> bool:
 def can_user_verify(doc_hash: str, user_id: str, unknown_count: int) -> Tuple[bool, str]:
     """
     Verification rule:
-    - First uploader can verify at any time while unknowns exist.
+    - First uploader can verify while verify-cycle is open.
     - Later users must teach at least one unknown for that document.
-    - If unknowns are zero, verification is unnecessary and disallowed.
     """
-    if unknown_count <= 0:
-        return False, "All unknown clauses are already resolved. Verification is no longer required."
-
     meta = get_document_meta(doc_hash)
     if not _is_verify_cycle_open(meta):
         return False, "Verification already recorded. Teach at least one unknown clause to unlock verify again."
@@ -243,7 +294,10 @@ def can_user_verify(doc_hash: str, user_id: str, unknown_count: int) -> Tuple[bo
     if teach_count > 0:
         return True, "User has taught at least one unknown clause."
 
-    return False, "You need to teach at least one unknown clause before you can verify."
+    if unknown_count > 0:
+        return False, "You need to teach at least one unknown clause before you can verify."
+
+    return False, "Teach at least one clause update to unlock verification."
 
 
 def get_verification_history(doc_hash: str) -> List[Dict[str, Any]]:
@@ -264,7 +318,7 @@ def get_verification_state(doc_hash: str, user_id: str, unknown_count: int) -> D
     return {
         "doc_hash": doc_hash,
         "unknown_count": unknown_count,
-        "show_verify_button": unknown_count > 0 and cycle_open,
+        "show_verify_button": cycle_open and (unknown_count > 0 or taught_count > 0),
         "is_first_uploader": first,
         "user_taught_count": taught_count,
         "can_verify": allowed,
@@ -277,6 +331,7 @@ def create_verification_attempt(
     user_id: str,
     clauses: List[Dict[str, Any]],
     unknown_count: int,
+    attempt_number: Optional[int] = None,
     tx_hash: Optional[str] = None,
     blockchain_link: Optional[str] = None,
     snapshot_hash: Optional[str] = None,
@@ -315,8 +370,10 @@ def create_verification_attempt(
     if blockchain_link is None:
         blockchain_link = f"https://blockchain.lexicache.app/proof/{tx_hash}"
 
+    computed_attempt = int(attempt_number) if attempt_number is not None else len(attempts) + 1
+
     attempt = {
-        "attempt": len(attempts) + 1,
+        "attempt": computed_attempt,
         "verified_at": verified_at,
         "verified_by": user,
         "clause_count": len(clauses),
@@ -350,12 +407,59 @@ def push_history_entry(doc_hash: str, entry: Dict[str, Any]) -> bool:
         return False
 
 
+def get_history_entries(doc_hash: str) -> List[Dict[str, Any]]:
+    """Return parsed history entries from Redis list history:{doc_hash}."""
+    client = _get_redis()
+    if client is None:
+        return []
+
+    try:
+        raw_items = client.lrange(_history_key(doc_hash), 0, -1)
+        entries: List[Dict[str, Any]] = []
+        for item in raw_items:
+            try:
+                parsed = json.loads(item)
+                if isinstance(parsed, dict):
+                    entries.append(parsed)
+            except Exception:
+                continue
+        return entries
+    except Exception as exc:
+        print(f"[Redis] get_history_entries failed for doc:{doc_hash[:16]}...: {exc}")
+        logger.warning("[Redis] get_history_entries failed: %s", exc)
+        return []
+
+
 def has_verification_history(doc_hash: str) -> bool:
     meta = get_document_meta(doc_hash)
     if not meta:
         return False
     history = meta.get("verification_history")
     return isinstance(history, list) and len(history) > 0
+
+
+def has_open_verification_cycle(doc_hash: str) -> bool:
+    """Return True when a document currently requires a fresh verification."""
+    meta = get_document_meta(doc_hash)
+    if not meta:
+        return False
+    return _is_verify_cycle_open(meta)
+
+
+def should_discard_on_leave(doc_hash: str) -> bool:
+    """
+    Discard if:
+    - there has never been a verification attempt, or
+    - a new verify cycle is open (teaching happened after last verification).
+    """
+    meta = get_document_meta(doc_hash)
+    if not meta:
+        return False
+    history = meta.get("verification_history")
+    attempts: List[Dict[str, Any]] = history if isinstance(history, list) else []
+    if len(attempts) == 0:
+        return True
+    return _is_verify_cycle_open(meta)
 
 
 def discard_document_data(doc_hash: str) -> bool:
@@ -365,7 +469,7 @@ def discard_document_data(doc_hash: str) -> bool:
         return False
 
     try:
-        client.delete(_doc_key(doc_hash), _meta_key(doc_hash))
+        client.delete(_doc_key(doc_hash), _meta_key(doc_hash), _history_key(doc_hash))
         print(f"[Redis] Discarded document data for doc:{doc_hash[:16]}...")
         logger.info("[Redis] Discarded document data for doc:%s...", doc_hash[:16])
         return True
