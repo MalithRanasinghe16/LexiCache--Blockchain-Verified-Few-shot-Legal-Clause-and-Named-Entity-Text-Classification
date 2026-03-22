@@ -110,6 +110,7 @@ def _default_meta(user_id: str) -> Dict[str, Any]:
         "first_uploader": user_id,
         "first_uploaded_at": _now_iso(),
         "taught_users": {},
+        "taught_users_at_last_verify": {},
         "pending_teaches": [],
         "verification_history": [],
         "last_verified_taught_total": 0,
@@ -308,6 +309,39 @@ def get_verification_history(doc_hash: str) -> List[Dict[str, Any]]:
     return history if isinstance(history, list) else []
 
 
+def seed_verification_baseline(
+    doc_hash: str,
+    user_id: str,
+    history: List[Dict[str, Any]],
+) -> bool:
+    """
+    Seed Redis metadata with durable verification history baseline.
+
+    This keeps verify-cycle gating correct even if Redis metadata expired
+    while durable history remains available (e.g., MongoDB fallback).
+    """
+    if not history:
+        return False
+
+    user = (user_id or "anonymous").strip() or "anonymous"
+    meta = get_document_meta(doc_hash)
+    if meta is None:
+        meta = _default_meta(user)
+
+    existing = meta.get("verification_history")
+    existing_attempts: List[Dict[str, Any]] = existing if isinstance(existing, list) else []
+    if existing_attempts:
+        return False
+
+    taught_users = meta.get("taught_users")
+    taught_map: Dict[str, Any] = taught_users if isinstance(taught_users, dict) else {}
+
+    meta["verification_history"] = history
+    meta["last_verified_taught_total"] = _get_total_teach_count(meta)
+    meta["taught_users_at_last_verify"] = dict(taught_map)
+    return _save_document_meta(doc_hash, meta)
+
+
 def get_verification_state(doc_hash: str, user_id: str, unknown_count: int) -> Dict[str, Any]:
     user = (user_id or "anonymous").strip() or "anonymous"
     meta = get_document_meta(doc_hash)
@@ -386,9 +420,50 @@ def create_verification_attempt(
     attempts.append(attempt)
     meta["verification_history"] = attempts
     meta["last_verified_taught_total"] = _get_total_teach_count(meta)
+    taught_users = meta.get("taught_users")
+    taught_map: Dict[str, Any] = taught_users if isinstance(taught_users, dict) else {}
+    meta["taught_users_at_last_verify"] = dict(taught_map)
     if not _save_document_meta(doc_hash, meta):
         return None
     return attempt
+
+
+def rollback_open_cycle_data(doc_hash: str) -> bool:
+    """
+    Roll back unverified cycle changes while preserving verified baseline metadata.
+
+    Used when a user leaves after teaching but before verifying on a previously
+    verified document.
+    """
+    client = _get_redis()
+    if client is None:
+        return False
+
+    meta = get_document_meta(doc_hash)
+    if not meta:
+        return False
+
+    try:
+        baseline_taught = meta.get("taught_users_at_last_verify")
+        baseline_map: Dict[str, Any] = baseline_taught if isinstance(baseline_taught, dict) else {}
+
+        meta["pending_teaches"] = []
+        meta["taught_users"] = dict(baseline_map)
+        meta["last_verified_taught_total"] = _get_total_teach_count({"taught_users": baseline_map})
+
+        # Clear current analysis cache so next upload starts fresh classification.
+        # Keep docmeta so verification history and cycle baseline survive reload.
+        client.delete(_doc_key(doc_hash), _history_key(doc_hash))
+        if not _save_document_meta(doc_hash, meta):
+            return False
+
+        print(f"[Redis] Rolled back open cycle data for doc:{doc_hash[:16]}...")
+        logger.info("[Redis] Rolled back open cycle data for doc:%s...", doc_hash[:16])
+        return True
+    except Exception as exc:
+        print(f"[Redis] rollback_open_cycle_data failed for doc:{doc_hash[:16]}...: {exc}")
+        logger.warning("[Redis] rollback_open_cycle_data failed: %s", exc)
+        return False
 
 
 def push_history_entry(doc_hash: str, entry: Dict[str, Any]) -> bool:

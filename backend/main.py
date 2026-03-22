@@ -27,6 +27,8 @@ from src.deduplication import (
     push_history_entry,
     record_user_teach,
     register_upload,
+    rollback_open_cycle_data,
+    seed_verification_baseline,
     should_discard_on_leave,
     store_result,
 )
@@ -272,6 +274,8 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
         print(f"[upload-file] doc_hash={doc_hash[:16]}... file={file.filename!r} ({len(text)} chars)")
 
         register_upload(doc_hash, user_id)
+        durable_history = _get_effective_verification_history(doc_hash)
+        seed_verification_baseline(doc_hash, user_id, durable_history)
         cached = get_cached_result(doc_hash)
         if cached is not None:
             # Cache HIT — rebuild the full response from stored data and return
@@ -640,7 +644,10 @@ async def discard_document(request: DiscardRequest):
     - Keep only fully verified/closed cycles.
     """
     try:
-        if has_verification_history(request.doc_hash) and not has_open_verification_cycle(request.doc_hash):
+        has_history = len(_get_effective_verification_history(request.doc_hash)) > 0
+        cycle_open = has_open_verification_cycle(request.doc_hash)
+
+        if has_history and not cycle_open:
             return {
                 "status": "kept",
                 "message": "Document already verified; history preserved.",
@@ -652,6 +659,21 @@ async def discard_document(request: DiscardRequest):
                 "message": "Redis unavailable or document not found.",
             }
 
+        # Previously verified docs: roll back only unverified cycle changes,
+        # preserve verified baseline metadata and history.
+        if has_history and cycle_open:
+            rolled_back = rollback_open_cycle_data(request.doc_hash)
+            if rolled_back:
+                return {
+                    "status": "discarded",
+                    "message": "Open/unverified cycle data discarded; verified history preserved.",
+                }
+            return {
+                "status": "skipped",
+                "message": "Redis unavailable or document not found.",
+            }
+
+        # Never-verified docs: delete all cycle keys.
         deleted = discard_document_data(request.doc_hash)
         if deleted:
             return {
