@@ -71,6 +71,13 @@ cd backend
 python start_server.py
 ```
 
+Alternative (new structured module path):
+
+```bash
+cd backend
+python -m scripts.start_server
+```
+
 ### Start the frontend (port 3000)
 
 ```bash
@@ -85,9 +92,19 @@ Open http://localhost:3000 in your browser.
 ```
 LexiCache/
   backend/
-    main.py                 # FastAPI server with all API endpoints
-    start_server.py         # Uvicorn startup script
+    main.py                 # Compatibility entrypoint (re-exports app.main)
+    start_server.py         # Compatibility server launcher
     requirements.txt        # Python dependencies
+    app/
+      __init__.py
+      main.py               # FastAPI server with API endpoints
+    scripts/
+      __init__.py
+      start_server.py       # Uvicorn startup module
+      prepare_cuad_full.py  # Build CUAD JSON corpus from source zip
+      split_cuad.py         # Train/test split utility
+      evaluate_cuad_test.py # Baseline vs post-teaching evaluator
+      run_cuad_sweep.py     # Hyperparameter sweep runner
     src/
       __init__.py           # Package exports
       ml_model.py           # Adaptive meta-learning model (segmentation, classification, online learning)

@@ -8,7 +8,6 @@ import torch.nn as nn
 import numpy as np
 from tqdm import tqdm
 from datasets import load_dataset
-from pathlib import Path
 
 from src.modeling import PrototypicalNetwork
 from src.data import normalize_text
@@ -29,7 +28,7 @@ for param in model.encoder.parameters():
 
 # Load existing projection head (from LEDGAR meta-training)
 projection = nn.Linear(model.hidden_size, model.hidden_size).to(device)
-projection.load_state_dict(torch.load("projection_head.pth", map_location=device))
+projection.load_state_dict(torch.load("models/projection_head.pth", map_location=device))
 projection.train()
 
 optimizer = torch.optim.Adam(projection.parameters(), lr=8e-5)
@@ -110,10 +109,10 @@ for epoch in range(epochs):
 
     if avg_loss < best_loss:
         best_loss = avg_loss
-        torch.save(projection.state_dict(), "final_projection_head.pth")
-        print(f"  New best model saved: final_projection_head.pth")
+        torch.save(projection.state_dict(), "models/final_projection_head.pth")
+        print(f"  New best model saved: models/final_projection_head.pth")
 
 print("\n" + "="*80)
 print("MULTI-TASK FINE-TUNING COMPLETED")
-print(f"Best model saved as: final_projection_head.pth")
+print(f"Best model saved as: models/final_projection_head.pth")
 print("="*80)

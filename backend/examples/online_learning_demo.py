@@ -1,4 +1,3 @@
-"""
 """LexiCache online learning demo.
 Demonstrates how the adaptive meta-learning system works.
 """

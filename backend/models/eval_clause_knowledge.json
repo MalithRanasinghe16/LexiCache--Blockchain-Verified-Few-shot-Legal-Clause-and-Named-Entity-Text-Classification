@@ -1,0 +1,59 @@
+{
+  "learned_types": {
+    "Document Name": {
+      "examples": [
+        "Multiple LINAC and Multi-Modality Distributor Agreement"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-23T02:36:35.009400"
+    },
+    "Expiration Date": {
+      "examples": [
+        "Unless otherwise agreed in writing by Accuray and Distributor and subject to the termination rights contained in this Agreement,  this Agreement shall begin on the Effective Date and shall continue un"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-23T02:36:35.292094"
+    },
+    "Governing Law": {
+      "examples": [
+        "This Agreement shall be governed by, and construed in accordance with, the laws of the Federal Republic of Germany excluding the United Nations Convention on Contracts of International Sale of Goods ("
+      ],
+      "count": 1,
+      "first_learned": "2026-03-23T02:36:35.822092"
+    },
+    "Anti-Assignment": {
+      "examples": [
+        "Alliance Agreement upon such Change in Control; provided, further, that Siemens may assign its rights and obligations under this  Agreement to any Distributor that agrees, in writing, to be bound by a",
+        "Neither this Agreement, nor any of the rights, interests, or obligations under this Agreement may be assigned or  delegated, in whole or in part, by operation of law or otherwise, by any party without"
+      ],
+      "count": 2,
+      "first_learned": "2026-03-23T02:36:36.240606"
+    }
+  },
+  "clause_colors": {},
+  "learned_examples": [
+    {
+      "clause_type": "Document Name",
+      "text": "Multiple LINAC and Multi-Modality Distributor Agreement"
+    },
+    {
+      "clause_type": "Expiration Date",
+      "text": "Unless otherwise agreed in writing by Accuray and Distributor and subject to the termination rights contained in this Agreement,  this Agreement shall begin on the Effective Date and shall continue until the termination of the Strategic Alliance Agreement;  provided, however, that if a Termination Election relating to this Agreement is made pursuant to Section 10.3 of the Strategic  Alliance Agreement prior to such termination, this Agreement shall terminate 36 months after such Termination Election (the  \"Term\")."
+    },
+    {
+      "clause_type": "Governing Law",
+      "text": "This Agreement shall be governed by, and construed in accordance with, the laws of the Federal Republic of Germany excluding the United Nations Convention on Contracts of International Sale of Goods (CISG) and the provisions of German private  international law."
+    },
+    {
+      "clause_type": "Anti-Assignment",
+      "text": "Alliance Agreement upon such Change in Control; provided, further, that Siemens may assign its rights and obligations under this  Agreement to any Distributor that agrees, in writing, to be bound by and comply with the terms and conditions of this Agreement  and the provisions of the Strategic Alliance Agreement, provided, that no such assignment shall relieve Siemens of its obligations  hereunder or thereunder if such Distributor does not perform such obligations."
+    },
+    {
+      "clause_type": "Anti-Assignment",
+      "text": "Neither this Agreement, nor any of the rights, interests, or obligations under this Agreement may be assigned or  delegated, in whole or in part, by operation of law or otherwise, by any party without the prior written consent of the other party,  and any such assignment without such prior written consent shall be null and void; provided, however, that this Agreement may be  assigned by a Party in connection with a Change in Control of such party, subject to the specific termination and other rights set  forth in the Strategic"
+    }
+  ],
+  "timestamp": "2026-03-23T02:36:36.610481",
+  "total_learned": 4,
+  "total_examples": 5
+}

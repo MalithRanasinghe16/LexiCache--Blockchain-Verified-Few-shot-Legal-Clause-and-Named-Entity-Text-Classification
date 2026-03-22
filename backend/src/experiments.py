@@ -68,7 +68,7 @@ def train_prototypical_meta(
     epochs: int = 3,
     batch_size: int = 16,
     lr: float = 1e-4,
-    save_path: str = "projection_head.pth"
+    save_path: str = "models/projection_head.pth"
 ):
     """
     Meta-train projection head with correct label remapping per episode.
@@ -165,7 +165,7 @@ def evaluate_with_trained_projection(
     n_way: int = 5,
     k_shot: int = 5,
     n_episodes: int = 50,
-    projection_path: str = "projection_head.pth",
+    projection_path: str = "models/projection_head.pth",
     apply_normalization: bool = True
 ):
     """
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     #     epochs=5,
     #     batch_size=16,
     #     lr=1e-4,
-    #     save_path="projection_head.pth"
+    #     save_path="models/projection_head.pth"
     # )
 
 
@@ -250,6 +250,6 @@ if __name__ == "__main__":
         n_way=5,
         k_shot=5,
         n_episodes=50,
-        projection_path="projection_head.pth",
+        projection_path="models/projection_head.pth",
         apply_normalization=True
     )

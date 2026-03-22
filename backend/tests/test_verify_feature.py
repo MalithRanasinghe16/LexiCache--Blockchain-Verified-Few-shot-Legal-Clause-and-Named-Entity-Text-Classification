@@ -6,7 +6,6 @@ import sys
 from types import ModuleType
 from typing import Any, Dict, List
 from unittest.mock import Mock
-from io import BytesIO
 
 import pytest
 

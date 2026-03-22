@@ -360,9 +360,43 @@ CLAUSE_KEYWORDS = {
 # LexiCacheModel
 
 class LexiCacheModel:
-    def __init__(self, projection_path="final_projection_head.pth", support_set_path="support_set.pkl",
-                 knowledge_path="clause_knowledge.json"):
+    @staticmethod
+    def _resolve_existing_path(preferred: str, *fallbacks: str) -> str:
+        """Return the first existing path among preferred and fallbacks."""
+        candidates = (preferred,) + fallbacks
+        for candidate in candidates:
+            if Path(candidate).exists():
+                return candidate
+        return preferred
+
+    def __init__(self, projection_path="models/final_projection_head.pth", support_set_path="models/support_set.pkl",
+                 knowledge_path="models/clause_knowledge.json", use_train_only: bool = False,
+                 cuad_train_path: str = "data/processed/cuad/train", max_seed_examples_per_type: int = 12,
+                 kw_weight: float = 0.70, model_weight: float = 0.30,
+                 inclusion_conf_threshold: float = 0.65,
+                 context_promote_threshold: float = 0.70,
+                 model_distance_scale: float = 1.8,
+                 hybrid_agreement_bonus: float = 0.15):
         print("[LexiCacheModel] Loading adaptive meta-learning model...")
+
+        projection_path = self._resolve_existing_path(
+            projection_path,
+            "final_projection_head.pth",
+            "projection_head.pth",
+        )
+        support_set_path = self._resolve_existing_path(
+            support_set_path,
+            "support_set.pkl",
+        )
+        knowledge_path = self._resolve_existing_path(
+            knowledge_path,
+            "clause_knowledge.json",
+        )
+        cuad_train_path = self._resolve_existing_path(
+            cuad_train_path,
+            "data/cuad_train",
+        )
+
         self.model = PrototypicalNetwork()
         self.projection = nn.Linear(self.model.hidden_size, self.model.hidden_size).to(self.model.device)
         self.projection.load_state_dict(torch.load(projection_path, map_location=self.model.device))
@@ -372,10 +406,12 @@ class LexiCacheModel:
         self.support_embeddings: List[Any] = []
         self.support_labels: List[str] = []
         self.support_texts: List[str] = []
+        self.support_sources: List[str] = []
         self.label_to_id: Dict[str, int] = {}
         self.next_label_id: int = 0
         self.support_set_path: str = support_set_path
         self.knowledge_path: str = knowledge_path
+        self.use_train_only: bool = use_train_only
 
         # Classification thresholds
         self.keyword_high_threshold: float = 0.85
@@ -383,21 +419,36 @@ class LexiCacheModel:
         self.unknown_threshold: float = 0.35
 
         # Hybrid weighting: keywords are more reliable for CUAD
-        self.kw_weight: float = 0.70
-        self.model_weight: float = 0.30
+        self.kw_weight: float = max(0.0, float(kw_weight))
+        self.model_weight: float = max(0.0, float(model_weight))
+
+        # Tunable inference controls for threshold sweeps.
+        self.inclusion_conf_threshold: float = float(inclusion_conf_threshold)
+        self.context_promote_threshold: float = float(context_promote_threshold)
+        self.model_distance_scale: float = max(0.1, float(model_distance_scale))
+        self.hybrid_agreement_bonus: float = max(0.0, float(hybrid_agreement_bonus))
 
         # Persistent knowledge base
         self.learned_types: Dict[str, Dict[str, Any]] = {}
         self.clause_colors: Dict[str, str] = {}
 
-        self._load_support_set()
-        self._load_knowledge_base()
+        # Always seed initial support from CUAD train split when available.
+        # In evaluation mode this is the only support source for a fair baseline.
+        self._load_initial_cuad_support(cuad_train_path, max_seed_examples_per_type)
+
+        # Runtime default keeps existing learned-example loading behavior.
+        if not self.use_train_only:
+            self._load_support_set()
+            self._load_knowledge_base()
+
+        self._ensure_label_ids()
 
         print(f"[LexiCacheModel] Adaptive model ready. Unknown clause detection enabled.")
         print(f"  Device: {self.model.device}")
         print(f"  Support set size: {len(self.support_embeddings)} examples")
         print(f"  Known CUAD types: {len(CLAUSE_KEYWORDS_WEIGHTED)}")
         print(f"  Learned custom types: {len(self.learned_types)}")
+        print(f"  Inference config: kw={self.kw_weight:.2f}, model={self.model_weight:.2f}, include>={self.inclusion_conf_threshold:.2f}")
 
     # Segmentation
 
@@ -674,7 +725,7 @@ class LexiCacheModel:
             dists = torch.cdist(proj, support_emb)
             pred_idx = dists.argmin().item()
             min_dist = dists[0, pred_idx].item()
-            model_conf = max(0.0, min(0.95, 1.0 - (min_dist / 1.8)))
+            model_conf = max(0.0, min(0.95, 1.0 - (min_dist / self.model_distance_scale)))
             model_type = self.support_labels[pred_idx]
 
         # Blended scoring (used for type selection only, not inclusion decision)
@@ -684,7 +735,7 @@ class LexiCacheModel:
         if model_type:
             candidates[model_type] = candidates.get(model_type, 0.0) + model_conf * self.model_weight
         if kw_type and model_type and kw_type == model_type:
-            candidates[kw_type] = min(0.98, candidates[kw_type] + 0.15)
+            candidates[kw_type] = min(0.98, candidates[kw_type] + self.hybrid_agreement_bonus)
 
         best_type = max(candidates, key=lambda k: candidates.get(k, 0.0)) if candidates else None
         best_blended = candidates[best_type] if best_type else 0.0
@@ -718,7 +769,7 @@ class LexiCacheModel:
             'model_conf': round(model_conf, 4) if model_conf else 0.0,
         }
 
-        if best_raw_conf >= 0.65:
+        if best_raw_conf >= self.inclusion_conf_threshold:
             # High confidence: return as a known clause
             return {**base, 'clause_type': best_type, 'confidence': round(best_blended, 4),
                     'source': source, 'needs_review': needs_review}
@@ -762,10 +813,11 @@ class LexiCacheModel:
         # Rule 2: Demote very short segments
         for seg in merged:
             if len(seg['span'].strip()) < 25:
-                seg['confidence'] = min(seg['confidence'], 0.50)
+                seg['confidence'] = min(seg['confidence'], 0.45)
                 seg['needs_review'] = True
 
         # Rule 3: Context-promote sandwiched unknowns
+        context_promote_threshold = float(getattr(self, 'context_promote_threshold', 0.70))
         for i in range(1, len(merged) - 1):
             if merged[i]['clause_type'] == 'Unknown clause':
                 prev_type = merged[i - 1]['clause_type']
@@ -775,8 +827,8 @@ class LexiCacheModel:
 
                 if (prev_type == next_type
                         and prev_type != 'Unknown clause'
-                        and prev_conf >= 0.70  # Reduced from 0.75
-                        and next_conf >= 0.70):
+                    and prev_conf >= context_promote_threshold
+                    and next_conf >= context_promote_threshold):
                     merged[i]['clause_type'] = prev_type
                     merged[i]['confidence'] = 0.65
                     merged[i]['source'] = 'context_promoted'
@@ -863,33 +915,135 @@ class LexiCacheModel:
 
     # Persistence
 
+    def _ensure_label_ids(self):
+        for label in self.support_labels:
+            if label not in self.label_to_id:
+                self.label_to_id[label] = self.next_label_id
+                self.next_label_id += 1
+
+    def _load_initial_cuad_support(self, cuad_train_path: str, max_seed_examples_per_type: int = 12):
+        train_dir = Path(cuad_train_path)
+        if not train_dir.exists():
+            print(f"  CUAD train seed path not found, skipping: {train_dir}")
+            return
+
+        train_files = sorted(train_dir.glob("*.json"))
+        if not train_files:
+            print(f"  CUAD train seed path has no JSON files, skipping: {train_dir}")
+            return
+
+        type_counts: Dict[str, int] = defaultdict(int)
+        loaded = 0
+
+        print(f"  Seeding support set from CUAD train split ({len(train_files)} files)...")
+        for path in train_files:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception as e:
+                print(f"    Failed to read {path.name}: {e}")
+                continue
+
+            full_text = data.get('full_text', '')
+            annotations = data.get('clause_types', [])
+            if not isinstance(full_text, str) or not isinstance(annotations, list):
+                continue
+
+            for ann in annotations:
+                if not isinstance(ann, dict):
+                    continue
+                clause_type = ann.get('clause_type')
+                start = ann.get('start')
+                end = ann.get('end')
+
+                if not isinstance(clause_type, str) or not clause_type.strip():
+                    continue
+                if not isinstance(start, int) or not isinstance(end, int):
+                    continue
+                if start < 0 or end <= start or end > len(full_text):
+                    continue
+                if max_seed_examples_per_type >= 0 and type_counts[clause_type] >= max_seed_examples_per_type:
+                    continue
+
+                span = full_text[start:end].strip()
+                if len(span) < 30:
+                    continue
+
+                try:
+                    normalized = normalize_text(span)
+                    with torch.no_grad():
+                        emb = self.model([normalized], batch_size=1)
+                        proj = self.projection(emb.to(self.model.device))
+                    self.support_embeddings.append(proj.squeeze(0).cpu())
+                    self.support_labels.append(clause_type)
+                    self.support_texts.append(span)
+                    self.support_sources.append('seed_train')
+                    type_counts[clause_type] += 1
+                    loaded += 1
+                except Exception as e:
+                    print(f"    Failed to embed seed example in {path.name}: {e}")
+
+        print(f"  Loaded {loaded} CUAD train seed examples across {len(type_counts)} clause types")
+
     def _load_support_set(self):
         if Path(self.support_set_path).exists():
             try:
                 with open(self.support_set_path, 'rb') as f:
                     data = pickle.load(f)
-                    self.support_embeddings = data.get('embeddings', [])
-                    self.support_labels = data.get('labels', [])
-                    self.support_texts = data.get('texts', [])
-                    self.label_to_id = data.get('label_to_id', {})
-                    self.next_label_id = data.get('next_label_id', 0)
-                print(f"  Loaded {len(self.support_embeddings)} examples from persistent storage")
+                    embeddings = data.get('embeddings', [])
+                    labels = data.get('labels', [])
+                    texts = data.get('texts', [])
+                    sources = data.get('sources', [])
+                    loaded_label_to_id = data.get('label_to_id', {})
+                    loaded_next_label_id = data.get('next_label_id', 0)
+
+                if not isinstance(embeddings, list) or not isinstance(labels, list):
+                    print("  Invalid support_set.pkl format, skipping")
+                    return
+
+                if not isinstance(texts, list):
+                    texts = []
+                if not isinstance(sources, list):
+                    sources = ['learned'] * len(labels)
+
+                self.support_embeddings.extend(embeddings)
+                self.support_labels.extend(labels)
+                self.support_texts.extend(texts)
+                self.support_sources.extend(sources[:len(labels)] + ['learned'] * max(0, len(labels) - len(sources)))
+
+                if isinstance(loaded_label_to_id, dict):
+                    self.label_to_id.update(loaded_label_to_id)
+                if isinstance(loaded_next_label_id, int):
+                    self.next_label_id = max(self.next_label_id, loaded_next_label_id)
+
+                print(f"  Loaded {len(labels)} learned examples from persistent storage")
             except Exception as e:
                 print(f"  Failed to load support set: {e}")
 
     def _save_support_set(self):
         try:
+            learned_embeddings = []
+            learned_labels = []
+            learned_texts = []
+            for i, src in enumerate(self.support_sources):
+                if src == 'seed_train':
+                    continue
+                learned_embeddings.append(self.support_embeddings[i])
+                learned_labels.append(self.support_labels[i])
+                learned_texts.append(self.support_texts[i] if i < len(self.support_texts) else '')
+
             data = {
-                'embeddings': self.support_embeddings,
-                'labels': self.support_labels,
-                'texts': self.support_texts,
+                'embeddings': learned_embeddings,
+                'labels': learned_labels,
+                'texts': learned_texts,
+                'sources': ['learned'] * len(learned_labels),
                 'label_to_id': self.label_to_id,
                 'next_label_id': self.next_label_id,
                 'timestamp': datetime.now().isoformat()
             }
             with open(self.support_set_path, 'wb') as f:
                 pickle.dump(data, f)
-            print(f"  Saved {len(self.support_embeddings)} examples to persistent storage")
+            print(f"  Saved {len(learned_labels)} learned examples to persistent storage")
         except Exception as e:
             print(f"  Failed to save support set: {e}")
 
@@ -917,6 +1071,7 @@ class LexiCacheModel:
                                 self.support_embeddings.append(proj.squeeze(0).cpu())
                                 self.support_labels.append(clause_type)
                                 self.support_texts.append(text)
+                                self.support_sources.append('learned')
                             except Exception as e:
                                 print(f"    Failed to rebuild embedding for {clause_type}: {e}")
                         print(f"  Rebuilt support set with {len(self.support_embeddings)} examples")
@@ -928,7 +1083,8 @@ class LexiCacheModel:
         try:
             learned_examples = []
             for i, label in enumerate(self.support_labels):
-                if i < len(self.support_texts):
+                source = self.support_sources[i] if i < len(self.support_sources) else 'learned'
+                if source != 'seed_train' and i < len(self.support_texts):
                     learned_examples.append({
                         'clause_type': label,
                         'text': self.support_texts[i]
@@ -959,16 +1115,18 @@ class LexiCacheModel:
             if correct_label not in self.label_to_id:
                 self.label_to_id[correct_label] = self.next_label_id
                 self.next_label_id += 1
-                if correct_label not in self.learned_types:
-                    self.learned_types[correct_label] = {
-                        'examples': [],
-                        'count': 0,
-                        'first_learned': datetime.now().isoformat()
-                    }
+
+            if correct_label not in self.learned_types:
+                self.learned_types[correct_label] = {
+                    'examples': [],
+                    'count': 0,
+                    'first_learned': datetime.now().isoformat()
+                }
 
             self.support_embeddings.append(proj.squeeze(0).cpu())
             self.support_labels.append(correct_label)
             self.support_texts.append(clause_text)
+            self.support_sources.append('learned')
 
             entry: Dict[str, Any] = self.learned_types[correct_label]
             entry['count'] = int(entry.get('count', 0)) + 1
@@ -1009,6 +1167,8 @@ class LexiCacheModel:
             label_counts[label] += 1
         return {
             'total_examples': len(self.support_embeddings),
+            'seed_examples': len([s for s in self.support_sources if s == 'seed_train']),
+            'learned_examples': len([s for s in self.support_sources if s != 'seed_train']),
             'unique_types': len(self.label_to_id),
             'known_cuad_types': len(CLAUSE_KEYWORDS_WEIGHTED),
             'learned_custom_types': len(self.learned_types),
