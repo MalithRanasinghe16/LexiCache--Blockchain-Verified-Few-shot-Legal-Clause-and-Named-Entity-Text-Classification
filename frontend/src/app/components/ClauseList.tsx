@@ -16,6 +16,35 @@ export default function ClauseList({
   onClauseClick,
   onResetFilters,
 }: Props) {
+  const isSameClause = (a: ClauseResult | null, b: ClauseResult): boolean => {
+    if (!a) return false;
+    if (
+      Number.isInteger(a.display_start_idx) &&
+      Number.isInteger(a.display_end_idx) &&
+      Number.isInteger(b.display_start_idx) &&
+      Number.isInteger(b.display_end_idx)
+    ) {
+      return (
+        a.display_start_idx === b.display_start_idx &&
+        a.display_end_idx === b.display_end_idx &&
+        a.clause_type === b.clause_type
+      );
+    }
+    if (
+      Number.isInteger(a.start_idx) &&
+      Number.isInteger(a.end_idx) &&
+      Number.isInteger(b.start_idx) &&
+      Number.isInteger(b.end_idx)
+    ) {
+      return (
+        a.start_idx === b.start_idx &&
+        a.end_idx === b.end_idx &&
+        a.clause_type === b.clause_type
+      );
+    }
+    return a.span === b.span && a.clause_type === b.clause_type;
+  };
+
   if (clauses.length === 0) {
     return (
       <div className="text-center text-black py-8">
@@ -34,7 +63,7 @@ export default function ClauseList({
   return (
     <div className="space-y-3 max-h-96 overflow-y-auto text-black">
       {clauses.map((clause) => {
-        const isActive = activeClause?.span === clause.span;
+        const isActive = isSameClause(activeClause, clause);
         const isUnknown = clause.clause_type === "Unknown clause";
         const stableKey = `${clause.clause_type}__${clause.start_idx ?? clause.span.slice(0, 40)}`;
 

@@ -38,9 +38,10 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('software agreement', 2), ('agreement', 1), ('contract', 1),
     ],
     'Parties': [
-        ('by and between', 2), ('hereinafter referred to as', 2), ('the parties', 2),
-        ('collectively referred to', 2), ('hereinafter called', 2),
-        ('party', 1), ('parties', 1), ('hereinafter', 1),
+        ('by and between', 3), ('hereinafter referred to as', 3),
+        ('collectively referred to as', 3), ('collectively, the parties', 3),
+        ('individually, a party', 3), ('together, the parties', 3),
+        ('hereinafter called', 2),
     ],
     'Agreement Date': [
         ('effective as of', 2), ('dated as of', 2), ('entered into as of', 2),
@@ -458,6 +459,14 @@ class LexiCacheModel:
         stripped = line.strip()
         if not stripped:
             return 'BLANK'
+
+        # Numbered legal lines can include full clause text on the same line,
+        # e.g. "8.1 Non-Compete: Service Provider shall ...".
+        # Treat these as BODY so highlights include the full clause sentence.
+        numbered_inline_clause = re.match(r'^\s*\d+(?:\.\d+)*\s+[^\n:]{1,80}:\s+\S+', stripped)
+        if numbered_inline_clause and len(stripped.split()) >= 8:
+            return 'BODY'
+
         for pattern in _HEADING_LINE_PATTERNS:
             if pattern.match(stripped):
                 return 'HEADING'
@@ -649,14 +658,19 @@ class LexiCacheModel:
         text_lower: str = text.lower()
         heading_lower: str = context_heading.lower() if context_heading else ''
 
-        best_match = None
+        best_match: Optional[str] = None
         best_score = 0.0
+        best_has_strong = False
+        second_score = 0.0
 
         for clause_type, kw_pairs in CLAUSE_KEYWORDS_WEIGHTED.items():
             score = 0.0
+            has_strong = False
             for kw, weight in kw_pairs:
                 in_body = kw in text_lower
                 in_heading = bool(heading_lower) and kw in heading_lower
+                if (in_body or in_heading) and weight >= 2:
+                    has_strong = True
 
                 if in_heading and in_body:
                     score += weight * 4.0   
@@ -666,8 +680,25 @@ class LexiCacheModel:
                     score += weight * 1.0   
 
             if score > best_score:
+                second_score = best_score
                 best_score = score
                 best_match = clause_type
+                best_has_strong = has_strong
+            elif score > second_score:
+                second_score = score
+
+        # Avoid overconfident labels from only weak/generic keyword signals.
+        if best_match and not best_has_strong and best_score < 3.0:
+            return None, 0.0
+
+        # If top two classes are too close and evidence isn't very strong,
+        # treat as uncertain instead of forcing a potentially wrong label.
+        if best_match and best_score < 6.0 and second_score >= (best_score * 0.90):
+            return None, 0.0
+
+        # Parties is easily over-triggered in legal prose. Require strong intro-style cues.
+        if best_match == 'Parties' and (not best_has_strong or best_score < 4.0):
+            return None, 0.0
 
         #CONFIDENCE SCALING - Higher base confidence
         if best_match and best_score >= 6.0:
@@ -836,6 +867,76 @@ class LexiCacheModel:
 
         return merged
 
+    @staticmethod
+    def _normalize_span_text(text: str, max_chars: int = 500) -> str:
+        collapsed = ' '.join(text.split())
+        return collapsed[:max_chars] if len(collapsed) > max_chars else collapsed
+
+    @staticmethod
+    def _expand_display_span(
+        contract_text: str,
+        start_idx: int,
+        end_idx: int,
+        lookaround_chars: int = 450,
+        max_chars: int = 900,
+    ) -> Tuple[int, int, str]:
+        n = len(contract_text)
+        start = max(0, min(int(start_idx), n))
+        end = max(start, min(int(end_idx), n))
+
+        left_limit = max(0, start - lookaround_chars)
+        right_limit = min(n, end + lookaround_chars)
+
+        left_slice = contract_text[left_limit:start]
+        # Keep single wrapped lines inside the same sentence by default.
+        left_boundaries = ["\n\n", ". ", "; ", ": ", "? ", "! "]
+        best_left = -1
+        best_left_token = ""
+        for token in left_boundaries:
+            idx = left_slice.rfind(token)
+            if idx > best_left:
+                best_left = idx
+                best_left_token = token
+
+        if best_left >= 0:
+            disp_start = left_limit + best_left + len(best_left_token)
+        else:
+            disp_start = left_limit
+
+        right_slice = contract_text[end:right_limit]
+        # Keep single wrapped lines inside the same sentence by default.
+        right_boundaries = ["\n\n", ". ", "; ", ": ", "? ", "! "]
+        best_right: Optional[int] = None
+        best_right_token = ""
+        for token in right_boundaries:
+            idx = right_slice.find(token)
+            if idx >= 0 and (best_right is None or idx < best_right):
+                best_right = idx
+                best_right_token = token
+
+        if best_right is not None:
+            disp_end = end + best_right + len(best_right_token)
+        else:
+            disp_end = right_limit
+
+        disp_start = max(0, min(disp_start, n))
+        disp_end = max(disp_start, min(disp_end, n))
+
+        while disp_start < disp_end and contract_text[disp_start].isspace():
+            disp_start += 1
+        while disp_end > disp_start and contract_text[disp_end - 1].isspace():
+            disp_end -= 1
+
+        if disp_end - disp_start > max_chars:
+            core_start = max(disp_start, start - (max_chars // 3))
+            core_end = min(disp_end, core_start + max_chars)
+            if core_end - core_start < max_chars:
+                core_start = max(disp_start, core_end - max_chars)
+            disp_start, disp_end = core_start, core_end
+
+        display_text = LexiCacheModel._normalize_span_text(contract_text[disp_start:disp_end], max_chars=max_chars)
+        return disp_start, disp_end, display_text
+
     # Main prediction pipeline
 
     def predict_cuad(self, contract_text: str) -> List[Dict[str, Any]]:
@@ -870,14 +971,14 @@ class LexiCacheModel:
 
             type_key = classification['clause_type']
 
-            # Truncate long spans for storage (full text still in contract_text)
-            span_text = seg['text'][:500] if len(seg['text']) > 500 else seg['text']
-            span_text = ' '.join(span_text.split())
+            exact_slice = contract_text[seg['start_idx']:seg['end_idx']]
+            span_text = self._normalize_span_text(exact_slice, max_chars=500)
 
             results.append({
                 'clause_type': type_key,
                 'confidence': classification['confidence'],
                 'span': span_text,
+                'span_exact': span_text,
                 'start_idx': seg['start_idx'],
                 'end_idx': seg['end_idx'],
                 'source': classification.get('source', 'unknown'),
@@ -898,6 +999,21 @@ class LexiCacheModel:
             elif r['confidence'] < 0.65:
                 # Known clauses below the confident threshold still need review
                 r['needs_review'] = True
+
+            exact_start = int(r.get('start_idx', 0) or 0)
+            exact_end = int(r.get('end_idx', exact_start) or exact_start)
+            exact_start = max(0, min(exact_start, len(contract_text)))
+            exact_end = max(exact_start, min(exact_end, len(contract_text)))
+            exact_text = self._normalize_span_text(contract_text[exact_start:exact_end], max_chars=500)
+            disp_start, disp_end, disp_text = self._expand_display_span(contract_text, exact_start, exact_end)
+
+            r['span_exact'] = exact_text
+            r['span_display'] = disp_text
+            r['display_start_idx'] = disp_start
+            r['display_end_idx'] = disp_end
+
+            # Backward-compatible field consumed by existing UI components.
+            r['span'] = disp_text if disp_text else exact_text
 
         # Sort for display: unknown clauses last, then by confidence descending
         results.sort(key=lambda x: (x['is_unknown'], -x['confidence']))

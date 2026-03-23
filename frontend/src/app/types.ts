@@ -3,12 +3,16 @@
 export type ClauseResult = {
   clause_type: string;
   span: string;
+  span_exact?: string;
+  span_display?: string;
   confidence: number;
   is_unknown?: boolean;
   needs_review?: boolean;
   source?: string;
   start_idx?: number;
   end_idx?: number;
+  display_start_idx?: number;
+  display_end_idx?: number;
   page_number?: number;
   context_heading?: string;
 };

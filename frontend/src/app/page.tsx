@@ -276,10 +276,11 @@ export default function Home() {
   };
 
   const handleClauseClick = (clause: ClauseResult) => {
+    const displaySpan = clause.span_display || clause.span;
     console.log("Clause clicked:", {
       type: clause.clause_type,
       isUnknown: clause.clause_type === "Unknown clause",
-      span: clause.span.substring(0, 50) + "...",
+      span: displaySpan.substring(0, 50) + "...",
     });
 
     if (clause.clause_type === "Unknown clause") {
@@ -291,7 +292,7 @@ export default function Home() {
       // Set active clause to trigger PDF scroll and highlight
       setActiveClause(clause);
       // Also set highlighted text for DOCX rendering and search indicator
-      setHighlightedText(clause.span);
+      setHighlightedText(displaySpan);
 
       // DOCX: scroll to the <mark> element
       if (fileType !== "pdf") {
@@ -299,7 +300,7 @@ export default function Home() {
         setTimeout(() => {
           const marks = document.querySelectorAll("mark");
           marks.forEach((mark) => {
-            if (mark.textContent?.includes(clause.span.substring(0, 50))) {
+            if (mark.textContent?.includes(displaySpan.substring(0, 50))) {
               mark.scrollIntoView({ behavior: "smooth", block: "center" });
               console.log("Scrolled to mark element");
             }
@@ -340,7 +341,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contract_text: documentText,
-          unknown_span: selectedUnknownClause.span,
+          unknown_span: selectedUnknownClause.span_exact || selectedUnknownClause.span,
           new_type_name: newClauseTypeName.trim(),
           color: colorMap[newClauseTypeName.trim()] || generateRandomColor(),
           doc_hash: docHash,

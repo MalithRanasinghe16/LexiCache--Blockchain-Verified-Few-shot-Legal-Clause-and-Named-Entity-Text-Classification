@@ -1,12 +1,12 @@
 import { Eye, CheckCircle } from "lucide-react";
-import { ClauseResult, PageTextContent } from "../types";
+import { AnalysisResult, ClauseResult, PageTextContent } from "../types";
 import PdfViewer from "./PdfViewer";
 import DocxViewer from "./DocxViewer";
 
 type Props = {
   file: File | null;
   fileType: string;
-  result: { result: ClauseResult[] };
+  result: AnalysisResult;
   numPages: number | null;
   pageWidth: number;
   pageHeights: number[];

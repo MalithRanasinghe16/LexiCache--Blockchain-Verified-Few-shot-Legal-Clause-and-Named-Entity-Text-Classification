@@ -69,16 +69,35 @@ export default function DocxViewer({
     }[] = [];
 
     getFilteredClauses().forEach((clause) => {
+      const clauseColor =
+        clause.clause_type === "Unknown clause"
+          ? "#F97316"
+          : colorMap[clause.clause_type] || "#6b7280";
+
+      if (
+        Number.isInteger(clause.display_start_idx) &&
+        Number.isInteger(clause.display_end_idx)
+      ) {
+        const start = Math.max(0, Math.min(clause.display_start_idx as number, documentText.length));
+        const end = Math.max(start, Math.min(clause.display_end_idx as number, documentText.length));
+        if (end > start) {
+          clausePositions.push({
+            start,
+            end,
+            color: clauseColor,
+            clauseType: clause.clause_type,
+          });
+          return;
+        }
+      }
+
       const normalizedDocText = documentText.toLowerCase();
-      const normalizedSpan = clause.span.toLowerCase();
-      const searchLength = Math.min(normalizedSpan.length, 200);
+      const displaySpan = clause.span_display || clause.span;
+      const normalizedSpan = displaySpan.toLowerCase();
+      const searchLength = Math.min(normalizedSpan.length, 260);
       const searchText = normalizedSpan.substring(0, searchLength);
       const index = normalizedDocText.indexOf(searchText);
       if (index !== -1) {
-        const clauseColor =
-          clause.clause_type === "Unknown clause"
-            ? "#F97316"
-            : colorMap[clause.clause_type] || "#6b7280";
         clausePositions.push({
           start: index,
           end: index + searchText.length,
