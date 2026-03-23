@@ -123,6 +123,20 @@
       ],
       "count": 1,
       "first_learned": "2026-03-24T02:18:22.683588"
+    },
+    "Party Definition Clause": {
+      "examples": [
+        "Heliovarion and Quantisara may hereinafter be referred to individually as a \u201cParty\u201d and"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-24T02:30:05.658192"
+    },
+    "Milestone Clause": {
+      "examples": [
+        "deliverables, performance metrics, acceptance testing procedures, and risk mitigation protocols as described in Schedule 1 (Statement of Technical Work)."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-24T02:36:59.700376"
     }
   },
   "clause_colors": {
@@ -139,7 +153,9 @@
     "Services clause": "hsl(81, 74%, 53%)",
     "Source Code Escrow Clause": "hsl(295, 86%, 43%)",
     "Key Personnel Clause": "hsl(353, 69%, 43%)",
-    "Progress Reporting Clause": "hsl(133, 87%, 53%)"
+    "Progress Reporting Clause": "hsl(133, 87%, 53%)",
+    "Party Definition Clause": "hsl(12, 64%, 50%)",
+    "Milestone Clause": "hsl(14, 85%, 40%)"
   },
   "learned_examples": [
     {
@@ -10541,9 +10557,17 @@
     {
       "clause_type": "Progress Reporting Clause",
       "text": "1) The CONSULTANT shall submit written progress reports with each invoice. The report should be sufficiently detailed for the Contract Manager to determine if the CONSULTANT is performing to expectations or is on schedule; to provide communication of interim findings; and to sufficiently address any difficulties or special problems encountered, so remedies can be developed. 2) The CONSULTANT\u2019s Project Manager shall meet with the COMMISSION\u2019s Contract Manager, as needed, to discuss progress on the contract."
+    },
+    {
+      "clause_type": "Party Definition Clause",
+      "text": "Heliovarion and Quantisara may hereinafter be referred to individually as a \u201cParty\u201d and"
+    },
+    {
+      "clause_type": "Milestone Clause",
+      "text": "deliverables, performance metrics, acceptance testing procedures, and risk mitigation protocols as described in Schedule 1 (Statement of Technical Work)."
     }
   ],
-  "timestamp": "2026-03-24T02:18:23.007509",
-  "total_learned": 17,
-  "total_examples": 2600
+  "timestamp": "2026-03-24T02:37:00.357958",
+  "total_learned": 19,
+  "total_examples": 2602
 }

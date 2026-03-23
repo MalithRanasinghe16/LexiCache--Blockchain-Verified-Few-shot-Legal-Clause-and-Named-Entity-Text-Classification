@@ -69,6 +69,8 @@ export type VerificationAttempt = {
   snapshot_hash: string;
   tx_hash: string;
   blockchain_link: string;
+  geo_hash?: string | null;
+  geo_summary?: string | null;
 };
 
 export type SearchMatch = {

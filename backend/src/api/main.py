@@ -77,10 +77,18 @@ class RenameUnknownRequest(BaseModel):
     user_id: Optional[str] = None
 
 
+class VerifyGeoLocation(BaseModel):
+    latitude: float
+    longitude: float
+    accuracy_m: Optional[float] = None
+    captured_at: Optional[str] = None
+
+
 class VerifyRequest(BaseModel):
     doc_hash: str
     user_id: str
     clauses: List[Dict[str, Any]]
+    geolocation: Optional[VerifyGeoLocation] = None
 
 
 class DiscardRequest(BaseModel):
@@ -155,6 +163,7 @@ def _apply_pending_teaches_to_results(
 def _send_sepolia_verification_tx(
     doc_hash: str,
     clause_types: List[str],
+    geo_hash: Optional[str] = None,
 ) -> Dict[str, Any]:
     try:
         from web3 import Web3
@@ -182,6 +191,8 @@ def _send_sepolia_verification_tx(
         raise RuntimeError(f"Connected chain_id={chain_id}, expected Sepolia (11155111)")
 
     payload_seed = doc_hash + json.dumps(clause_types, sort_keys=True, ensure_ascii=False)
+    if geo_hash:
+        payload_seed += geo_hash
     data_hex = "0x" + hashlib.sha256(payload_seed.encode("utf-8")).hexdigest()
 
     nonce = w3.eth.get_transaction_count(account.address)
@@ -232,6 +243,46 @@ def _pending_teaches_for_user(
         for teach in pending_teaches
         if isinstance(teach, dict) and str(teach.get("user_id", "")).strip() == user
     ]
+
+
+def _build_geo_audit_payload(
+    geolocation: Optional[VerifyGeoLocation],
+) -> Dict[str, Optional[str]]:
+    if geolocation is None:
+        return {
+            "geo_hash": None,
+            "geo_summary": None,
+        }
+
+    lat = float(geolocation.latitude)
+    lon = float(geolocation.longitude)
+    if lat < -90 or lat > 90 or lon < -180 or lon > 180:
+        raise HTTPException(status_code=400, detail="Invalid geolocation coordinates")
+
+    accuracy = None
+    if geolocation.accuracy_m is not None:
+        accuracy = max(0.0, float(geolocation.accuracy_m))
+
+    captured_at = str(geolocation.captured_at or "").strip()
+    geo_payload: Dict[str, Any] = {
+        "latitude": round(lat, 6),
+        "longitude": round(lon, 6),
+        "accuracy_m": round(accuracy, 1) if accuracy is not None else None,
+        "captured_at": captured_at or None,
+    }
+    geo_hash = _sha256_json(geo_payload)
+
+    lat_display = round(lat, 3)
+    lon_display = round(lon, 3)
+    if accuracy is not None:
+        geo_summary = f"{lat_display}, {lon_display} (+/- {round(accuracy)}m)"
+    else:
+        geo_summary = f"{lat_display}, {lon_display}"
+
+    return {
+        "geo_hash": geo_hash,
+        "geo_summary": geo_summary,
+    }
 
 @app.get("/")
 async def root():
@@ -584,10 +635,15 @@ async def verify_document(request: VerifyRequest):
         analysis_hash = _sha256_json(cached)
         print(f"Sending tx for doc {request.doc_hash}")
 
+        geo_audit = _build_geo_audit_payload(request.geolocation)
+        geo_hash = geo_audit.get("geo_hash")
+        geo_summary = geo_audit.get("geo_summary")
+
         try:
             tx_result = _send_sepolia_verification_tx(
                 doc_hash=request.doc_hash,
                 clause_types=clause_types,
+                geo_hash=geo_hash,
             )
         except Exception as tx_exc:
             error_text = str(tx_exc)
@@ -608,6 +664,8 @@ async def verify_document(request: VerifyRequest):
             "date": verified_at_iso,
             "tx_hash": tx_result["tx_hash"],
             "clause_summary": json.dumps(clause_types, ensure_ascii=False),
+            "geo_hash": geo_hash,
+            "geo_summary": geo_summary,
         }
         if not push_history_entry(request.doc_hash, history_entry):
             raise HTTPException(
@@ -624,6 +682,8 @@ async def verify_document(request: VerifyRequest):
             tx_hash=tx_result["tx_hash"],
             blockchain_link=tx_result["explorer_link"],
             snapshot_hash=analysis_hash,
+            geo_hash=geo_hash,
+            geo_summary=geo_summary,
         )
         if attempt is None:
             raise HTTPException(status_code=500, detail="Failed to persist verification attempt")

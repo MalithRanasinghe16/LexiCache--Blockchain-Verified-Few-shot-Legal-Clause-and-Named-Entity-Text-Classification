@@ -390,6 +390,8 @@ def create_verification_attempt(
     tx_hash: Optional[str] = None,
     blockchain_link: Optional[str] = None,
     snapshot_hash: Optional[str] = None,
+    geo_hash: Optional[str] = None,
+    geo_summary: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Append immutable verification attempt metadata to document history.
@@ -436,6 +438,8 @@ def create_verification_attempt(
         "snapshot_hash": snapshot_hash,
         "tx_hash": tx_hash,
         "blockchain_link": blockchain_link,
+        "geo_hash": geo_hash,
+        "geo_summary": geo_summary,
     }
 
     attempts.append(attempt)

@@ -66,6 +66,18 @@ export default function ResultsSidebar({
   onSearchPrev,
   onSearchClear,
 }: Props) {
+  const formatVerifiedAt = (value: string): string => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   const allClauses = result.result ?? [];
 
   const clauseTypes = Array.from(new Set(allClauses.map((c) => c.clause_type)));
@@ -150,9 +162,14 @@ export default function ResultsSidebar({
                       key={`${item.attempt}-${item.tx_hash}`}
                       className="rounded-xl border border-line bg-paper p-3"
                     >
-                      <p className="text-sm font-semibold text-foreground">
-                        Attempt {item.attempt}: {total} clauses
-                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground">
+                          Attempt {item.attempt}
+                        </p>
+                        <span className="rounded-full border border-line bg-white px-2 py-0.5 text-xs font-semibold text-muted">
+                          {total} clauses
+                        </span>
+                      </div>
 
                       <div className="mt-1 flex items-center gap-2 text-xs">
                         <span className="rounded-full bg-[#e6f6f3] px-2 py-0.5 font-semibold text-[#1a6157]">
@@ -163,14 +180,26 @@ export default function ResultsSidebar({
                         </span>
                       </div>
 
-                      <p className="mt-1 text-xs text-muted">
-                        {item.verified_at}
-                      </p>
+                      <div className="mt-2 space-y-1 border-t border-line/70 pt-2">
+                        <p className="text-xs text-muted">
+                          <span className="font-semibold text-foreground">Verified:</span>{" "}
+                          {formatVerifiedAt(item.verified_at)}
+                        </p>
+                        <p className="text-xs text-muted">
+                          <span className="font-semibold text-foreground">Location:</span>{" "}
+                          {item.geo_summary || "Not captured"}
+                        </p>
+                        <p className="break-all text-[11px] text-muted">
+                          <span className="font-semibold text-foreground">Location hash:</span>{" "}
+                          {item.geo_hash || "N/A"}
+                        </p>
+                      </div>
+
                       <a
                         href={item.blockchain_link}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-xs font-semibold text-brand hover:underline"
+                        className="mt-2 inline-block text-xs font-semibold text-brand hover:underline"
                       >
                         View blockchain record
                       </a>

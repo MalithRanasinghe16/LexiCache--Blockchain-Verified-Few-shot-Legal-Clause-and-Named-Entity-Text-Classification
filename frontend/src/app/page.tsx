@@ -591,6 +591,38 @@ export default function Home() {
     if (!docHash || !result?.result) return;
     setIsVerifying(true);
     try {
+      const geolocation = await new Promise<
+        | {
+            latitude: number;
+            longitude: number;
+            accuracy_m?: number;
+            captured_at: string;
+          }
+        | undefined
+      >((resolve) => {
+        if (typeof window === "undefined" || !navigator.geolocation) {
+          resolve(undefined);
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            resolve({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy_m: position.coords.accuracy,
+              captured_at: new Date().toISOString(),
+            });
+          },
+          () => resolve(undefined),
+          {
+            enableHighAccuracy: false,
+            timeout: 8000,
+            maximumAge: 60000,
+          },
+        );
+      });
+
       const res = await fetch("http://localhost:8000/verify-document", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -598,6 +630,7 @@ export default function Home() {
           doc_hash: docHash,
           user_id: userId,
           clauses: result.result,
+          geolocation,
         }),
       });
 
