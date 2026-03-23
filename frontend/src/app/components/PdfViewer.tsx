@@ -277,39 +277,37 @@ export default function PdfViewer({
     [],
   );
 
-  // Find text positions for a given span in a page
-  const findTextPositions = useCallback(
-    (
-      span: string,
-      pageContent: PageTextContent,
-      isSearch = false,
-    ): { x: number; y: number; width: number; height: number }[] => {
-      const positions: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-      }[] = [];
-      if (!span || !pageContent || pageContent.items.length === 0)
-        return positions;
-
-      const normalizedSpan = span
+  // ── Helpers for text normalization and line grouping ───────────────────
+  const normalizeForMatch = useCallback(
+    (text: string): string =>
+      text
         .toLowerCase()
         .replace(/[^\w\s]/g, " ")
         .replace(/\s+/g, " ")
-        .trim();
+        .trim(),
+    [],
+  );
 
-      const searchLength = isSearch
-        ? Math.min(normalizedSpan.length, 40)
-        : Math.min(normalizedSpan.length, 200);
-      const searchText = normalizedSpan.substring(0, searchLength);
+  type LineInfo = {
+    y: number;
+    minX: number;
+    maxX: number;
+    avgHeight: number;
+    count: number;
+    indices: number[];
+  };
 
+  const buildPageIndex = useCallback(
+    (
+      pageContent: PageTextContent,
+    ): {
+      pageText: string;
+      charToItemIdx: (number | undefined)[];
+      allLines: LineInfo[];
+      itemToLineIdx: Map<number, number>;
+    } => {
       let pageText = "";
-      const charToItemMap: {
-        char: number;
-        itemIdx: number;
-        localPos: number;
-      }[] = [];
+      const charToItemIdx: (number | undefined)[] = [];
 
       pageContent.items.forEach((item: TextItem, itemIdx: number) => {
         const normalizedItem = item.str
@@ -317,180 +315,232 @@ export default function PdfViewer({
           .replace(/[^\w\s]/g, " ")
           .replace(/\s+/g, " ");
         for (let i = 0; i < normalizedItem.length; i++) {
-          charToItemMap.push({ char: pageText.length, itemIdx, localPos: i });
+          charToItemIdx.push(itemIdx);
           pageText += normalizedItem[i];
         }
         if (itemIdx < pageContent.items.length - 1) {
-          charToItemMap.push({
-            char: pageText.length,
-            itemIdx,
-            localPos: normalizedItem.length,
-          });
+          charToItemIdx.push(itemIdx);
           pageText += " ";
         }
       });
 
-      let searchIdx = pageText.indexOf(searchText);
-      if (searchIdx === -1 && searchText.length > 80)
-        searchIdx = pageText.indexOf(searchText.substring(0, 80));
-      if (searchIdx === -1 && searchText.length > 50)
-        searchIdx = pageText.indexOf(searchText.substring(0, 50));
-      if (searchIdx === -1) {
-        const words = searchText
-          .split(" ")
-          .filter((w) => w.length > 3)
-          .slice(0, 6);
-        if (words.length >= 3) searchIdx = pageText.indexOf(words.join(" "));
-      }
-
-      if (searchIdx !== -1) {
-        const matchEnd = Math.min(
-          searchIdx + searchText.length,
-          pageText.length,
-        );
-        const matchedItemIndices = new Set<number>();
-        for (let i = searchIdx; i < matchEnd; i++) {
-          const mapping = charToItemMap.find((m) => m.char === i);
-          if (mapping) matchedItemIndices.add(mapping.itemIdx);
+      // Build line groups from all positioned items
+      type PositionedItem = {
+        item: TextItem;
+        x: number;
+        y: number;
+        idx: number;
+      };
+      const allPositioned: PositionedItem[] = [];
+      pageContent.items.forEach((item: TextItem, idx: number) => {
+        const x = item.transform[4];
+        const y = pageContent.viewport.height - item.transform[5] - item.height;
+        if (x >= 0 && y >= 0 && item.width > 0 && item.height > 0) {
+          allPositioned.push({ item, x, y, idx });
         }
+      });
 
-        const matchedItems: {
-          item: TextItem;
-          x: number;
-          y: number;
-          idx: number;
-        }[] = [];
-        const allItems: {
-          item: TextItem;
-          x: number;
-          y: number;
-          idx: number;
-        }[] = [];
-        const itemToLineIndex = new Map<number, number>();
-        matchedItemIndices.forEach((idx) => {
-          const item = pageContent.items[idx];
-          if (item) {
-            const x = item.transform[4];
-            const y =
-              pageContent.viewport.height - item.transform[5] - item.height;
-            if (x >= 0 && y >= 0 && item.width > 0 && item.height > 0)
-              matchedItems.push({ item, x, y, idx });
+      const allLines: LineInfo[] = [];
+      const itemToLineIdx = new Map<number, number>();
+
+      allPositioned
+        .sort((a, b) => a.y - b.y || a.x - b.x)
+        .forEach((current) => {
+          let lineIndex = -1;
+          for (let i = 0; i < allLines.length; i++) {
+            if (Math.abs(allLines[i].y - current.y) <= LINE_GROUP_TOLERANCE) {
+              lineIndex = i;
+              break;
+            }
           }
+          if (lineIndex === -1) {
+            allLines.push({
+              y: current.y,
+              minX: current.x,
+              maxX: current.x + current.item.width,
+              avgHeight: current.item.height,
+              count: 1,
+              indices: [current.idx],
+            });
+            lineIndex = allLines.length - 1;
+          } else {
+            const line = allLines[lineIndex];
+            line.minX = Math.min(line.minX, current.x);
+            line.maxX = Math.max(line.maxX, current.x + current.item.width);
+            line.avgHeight =
+              (line.avgHeight * line.count + current.item.height) /
+              (line.count + 1);
+            line.count += 1;
+            line.indices.push(current.idx);
+          }
+          itemToLineIdx.set(current.idx, lineIndex);
         });
 
-        pageContent.items.forEach((item: TextItem, idx: number) => {
-          const x = item.transform[4];
-          const y =
-            pageContent.viewport.height - item.transform[5] - item.height;
-          if (x >= 0 && y >= 0 && item.width > 0 && item.height > 0) {
-            allItems.push({ item, x, y, idx });
-          }
-        });
+      return { pageText, charToItemIdx, allLines, itemToLineIdx };
+    },
+    [],
+  );
 
-        const allLines: {
-          y: number;
-          minX: number;
-          maxX: number;
-          avgHeight: number;
-          count: number;
-          indices: number[];
-        }[] = [];
+  // Helper: produce line-level position rectangles from matched item indices
+  const lineRectsFromItems = useCallback(
+    (
+      matchedItemIndices: Set<number>,
+      pageContent: PageTextContent,
+      allLines: LineInfo[],
+      itemToLineIdx: Map<number, number>,
+      extendToFullClause: boolean,
+    ): { x: number; y: number; width: number; height: number }[] => {
+      const positions: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      }[] = [];
 
-        allItems
-          .sort((a, b) => a.y - b.y || a.x - b.x)
-          .forEach((current) => {
-            let lineIndex = -1;
-            for (let i = 0; i < allLines.length; i++) {
-              if (Math.abs(allLines[i].y - current.y) <= LINE_GROUP_TOLERANCE) {
-                lineIndex = i;
-                break;
-              }
-            }
+      const matchedLineIndices = new Set<number>();
+      matchedItemIndices.forEach((idx) => {
+        const lineIdx = itemToLineIdx.get(idx);
+        if (lineIdx !== undefined) matchedLineIndices.add(lineIdx);
+      });
 
-            if (lineIndex === -1) {
-              allLines.push({
-                y: current.y,
-                minX: current.x,
-                maxX: current.x + current.item.width,
-                avgHeight: current.item.height,
-                count: 1,
-                indices: [current.idx],
-              });
-              lineIndex = allLines.length - 1;
-            } else {
-              const line = allLines[lineIndex];
-              line.minX = Math.min(line.minX, current.x);
-              line.maxX = Math.max(line.maxX, current.x + current.item.width);
-              line.avgHeight =
-                (line.avgHeight * line.count + current.item.height) /
-                (line.count + 1);
-              line.count += 1;
-              line.indices.push(current.idx);
-            }
+      if (matchedLineIndices.size === 0) return positions;
 
-            itemToLineIndex.set(current.idx, lineIndex);
-          });
+      let lineIndicesToDraw: Set<number>;
 
-        if (matchedItems.length > 0) {
-          if (!isSearch) {
-            const matchedLineIndices = new Set<number>();
-            matchedItems.forEach((m) => {
-              const lineIndex = itemToLineIndex.get(m.idx);
-              if (lineIndex !== undefined) matchedLineIndices.add(lineIndex);
-            });
-
-            matchedLineIndices.forEach((lineIndex) => {
-              const line = allLines[lineIndex];
-              positions.push({
-                x: Math.max(0, line.minX - 4),
-                y: Math.max(0, line.y),
-                width: Math.min(
-                  line.maxX - line.minX + 8,
-                  pageWidth - line.minX,
-                ),
-                height: Math.max(line.avgHeight, 14),
-              });
-            });
-
-            return positions;
-          }
-
-          const lines: (typeof matchedItems)[] = [];
-          matchedItems
-            .sort((a, b) => a.y - b.y || a.x - b.x)
-            .forEach((current) => {
-              let addedToLine = false;
-              for (const line of lines) {
-                if (Math.abs(line[0].y - current.y) <= LINE_GROUP_TOLERANCE) {
-                  line.push(current);
-                  addedToLine = true;
-                  break;
-                }
-              }
-              if (!addedToLine) lines.push([current]);
-            });
-
-          lines.forEach((line) => {
-            line.sort((a, b) => a.x - b.x);
-            const minX = line[0].x;
-            const maxX =
-              line[line.length - 1].x + line[line.length - 1].item.width;
-            const avgHeight =
-              line.reduce((s, i) => s + i.item.height, 0) / line.length;
-            const avgY = line.reduce((s, l) => s + l.y, 0) / line.length;
-            positions.push({
-              x: Math.max(0, minX - 1),
-              y: Math.max(0, avgY),
-              width: Math.min(maxX - minX + 2, pageWidth - minX),
-              height: Math.max(avgHeight, 14),
-            });
-          });
+      if (extendToFullClause && matchedLineIndices.size > 0) {
+        // Extend to all lines between the first and last matched line
+        const sorted = Array.from(matchedLineIndices).sort((a, b) => a - b);
+        const minLine = sorted[0];
+        const maxLine = sorted[sorted.length - 1];
+        lineIndicesToDraw = new Set<number>();
+        for (let i = minLine; i <= maxLine; i++) {
+          lineIndicesToDraw.add(i);
         }
+      } else {
+        lineIndicesToDraw = matchedLineIndices;
       }
+
+      lineIndicesToDraw.forEach((lineIndex) => {
+        const line = allLines[lineIndex];
+        if (!line) return;
+        positions.push({
+          x: Math.max(0, line.minX - 4),
+          y: Math.max(0, line.y),
+          width: Math.min(line.maxX - line.minX + 8, pageWidth - line.minX),
+          height: Math.max(line.avgHeight, 14),
+        });
+      });
 
       return positions;
     },
     [pageWidth],
+  );
+
+  // Find text positions for a given span in a page
+  const findTextPositions = useCallback(
+    (
+      span: string,
+      pageContent: PageTextContent,
+      isSearch = false,
+    ): { x: number; y: number; width: number; height: number }[] => {
+      if (!span || !pageContent || pageContent.items.length === 0) return [];
+
+      const normalizedSpan = normalizeForMatch(span);
+      // Use 500 chars for clause highlights (up from 200), 40 for search
+      const searchLength = isSearch
+        ? Math.min(normalizedSpan.length, 40)
+        : Math.min(normalizedSpan.length, 500);
+      const searchText = normalizedSpan.substring(0, searchLength);
+
+      const { pageText, charToItemIdx, allLines, itemToLineIdx } =
+        buildPageIndex(pageContent);
+
+      // Strategy 1: Exact substring match (try progressively shorter)
+      let searchIdx = pageText.indexOf(searchText);
+      if (searchIdx === -1 && searchText.length > 120)
+        searchIdx = pageText.indexOf(searchText.substring(0, 120));
+      if (searchIdx === -1 && searchText.length > 80)
+        searchIdx = pageText.indexOf(searchText.substring(0, 80));
+      if (searchIdx === -1 && searchText.length > 50)
+        searchIdx = pageText.indexOf(searchText.substring(0, 50));
+      if (searchIdx === -1 && searchText.length > 30)
+        searchIdx = pageText.indexOf(searchText.substring(0, 30));
+
+      // Strategy 2: Progressive word matching — handles whitespace/punctuation mismatches
+      if (searchIdx === -1) {
+        const words = normalizedSpan.split(" ").filter((w) => w.length > 2);
+
+        // Try sequences of 5, 4, 3 consecutive significant words
+        for (
+          let windowSize = Math.min(5, words.length);
+          windowSize >= 3 && searchIdx === -1;
+          windowSize--
+        ) {
+          for (
+            let start = 0;
+            start <= words.length - windowSize && searchIdx === -1;
+            start++
+          ) {
+            const phrase = words.slice(start, start + windowSize).join(" ");
+            searchIdx = pageText.indexOf(phrase);
+          }
+        }
+      }
+
+      // Strategy 3: Find the full clause extent using the WHOLE normalized span text
+      // This catches the rest of the clause beyond the initial search window
+      if (searchIdx !== -1) {
+        // Try to extend the match to cover as much of the full normalizedSpan as possible
+        let bestMatchEnd = Math.min(
+          searchIdx + searchText.length,
+          pageText.length,
+        );
+
+        // If we have more span text, see if the full span exists starting at searchIdx
+        if (normalizedSpan.length > searchLength) {
+          // Try to match progressively more of the full span
+          const fullMatch = pageText.indexOf(normalizedSpan, searchIdx);
+          if (fullMatch === searchIdx) {
+            bestMatchEnd = Math.min(
+              searchIdx + normalizedSpan.length,
+              pageText.length,
+            );
+          } else {
+            // Try a longer portion than searchLength
+            for (
+              let tryLen = normalizedSpan.length;
+              tryLen > searchLength;
+              tryLen = Math.floor(tryLen * 0.7)
+            ) {
+              const tryText = normalizedSpan.substring(0, tryLen);
+              if (pageText.indexOf(tryText, searchIdx) === searchIdx) {
+                bestMatchEnd = Math.min(searchIdx + tryLen, pageText.length);
+                break;
+              }
+            }
+          }
+        }
+
+        const matchedItemIndices = new Set<number>();
+        for (let i = searchIdx; i < bestMatchEnd; i++) {
+          const itemIdx = charToItemIdx[i];
+          if (itemIdx !== undefined) matchedItemIndices.add(itemIdx);
+        }
+
+        if (matchedItemIndices.size > 0) {
+          return lineRectsFromItems(
+            matchedItemIndices,
+            pageContent,
+            allLines,
+            itemToLineIdx,
+            !isSearch, // extend to full clause for non-search highlights
+          );
+        }
+      }
+
+      return [];
+    },
+    [normalizeForMatch, buildPageIndex, lineRectsFromItems],
   );
 
   const findClausePositions = useCallback(
@@ -499,6 +549,7 @@ export default function PdfViewer({
       pageContent: PageTextContent,
       pageNumber: number,
     ) => {
+      // Strategy A: Text-based matching (try each candidate)
       const candidates = getClauseSearchCandidates(clause, pageNumber);
       for (const candidate of candidates) {
         const positions = findTextPositions(candidate, pageContent);
@@ -506,9 +557,63 @@ export default function PdfViewer({
           return positions;
         }
       }
+
+      // Strategy B: Character-offset-based fallback
+      // Use backend-provided char offsets + page boundaries to estimate
+      // which lines in the page contain the clause.
+      const range = getClauseRange(clause);
+      const pageInfo = getPageInfo(pageNumber);
+      if (range && pageInfo && pageInfo.end_char > pageInfo.start_char) {
+        const { pageText, charToItemIdx, allLines, itemToLineIdx } =
+          buildPageIndex(pageContent);
+
+        // Map clause char range to proportional position within the page
+        const pageLen = pageInfo.end_char - pageInfo.start_char;
+        const clauseStartInPage = Math.max(
+          0,
+          range.start - pageInfo.start_char,
+        );
+        const clauseEndInPage = Math.min(
+          pageLen,
+          range.end - pageInfo.start_char,
+        );
+        if (clauseEndInPage > clauseStartInPage && pageText.length > 0) {
+          // Map char offsets to approximate positions in normalized page text
+          const ratio = pageText.length / pageLen;
+          const normStart = Math.floor(clauseStartInPage * ratio);
+          const normEnd = Math.min(
+            Math.ceil(clauseEndInPage * ratio),
+            pageText.length,
+          );
+
+          const matchedItemIndices = new Set<number>();
+          for (let i = normStart; i < normEnd; i++) {
+            const itemIdx = charToItemIdx[i];
+            if (itemIdx !== undefined) matchedItemIndices.add(itemIdx);
+          }
+
+          if (matchedItemIndices.size > 0) {
+            return lineRectsFromItems(
+              matchedItemIndices,
+              pageContent,
+              allLines,
+              itemToLineIdx,
+              true,
+            );
+          }
+        }
+      }
+
       return [] as { x: number; y: number; width: number; height: number }[];
     },
-    [findTextPositions, getClauseSearchCandidates],
+    [
+      findTextPositions,
+      getClauseSearchCandidates,
+      getClauseRange,
+      getPageInfo,
+      buildPageIndex,
+      lineRectsFromItems,
+    ],
   );
 
   // ── Auto-scroll to the page containing the active clause ───────────────
@@ -677,7 +782,6 @@ export default function PdfViewer({
     selectedClauseTypes,
     minConfidence,
     colorWithOpacity,
-    getClauseSearchText,
     findClausePositions,
     clauseIntersectsPage,
     isSameClause,
