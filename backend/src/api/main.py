@@ -14,7 +14,7 @@ from src.ml_model import LexiCacheModel
 from src.deduplication import (
     add_pending_teach,
     can_user_verify,
-    clear_pending_teaches,
+    clear_pending_teaches_for_user,
     compute_doc_hash,
     create_verification_attempt,
     discard_document_data,
@@ -102,6 +102,18 @@ def _normalize_span_key(text: str) -> str:
     return " ".join(text.split()).strip().lower()
 
 
+def _candidate_span_keys(clause: Dict[str, Any]) -> List[str]:
+    keys: List[str] = []
+    for field in ("span", "span_exact", "span_display"):
+        value = str(clause.get(field, "")).strip()
+        if not value:
+            continue
+        normalized = _normalize_span_key(value)
+        if normalized and normalized not in keys:
+            keys.append(normalized)
+    return keys
+
+
 def _apply_pending_teaches_to_results(
     results: List[Dict[str, Any]],
     pending_teaches: List[Dict[str, Any]],
@@ -120,8 +132,11 @@ def _apply_pending_teaches_to_results(
     patched: List[Dict[str, Any]] = []
     for clause in results:
         entry = dict(clause)
-        span_key = _normalize_span_key(str(entry.get("span", "")))
-        forced_label = span_to_label.get(span_key)
+        forced_label = None
+        for span_key in _candidate_span_keys(entry):
+            forced_label = span_to_label.get(span_key)
+            if forced_label:
+                break
         if forced_label:
             entry["clause_type"] = forced_label
             try:
@@ -130,6 +145,7 @@ def _apply_pending_teaches_to_results(
                 existing_conf = 0.0
             entry["confidence"] = max(existing_conf, 0.95)
             entry["source"] = "pending_feedback"
+            entry["is_staged"] = True
             entry["needs_review"] = False
         patched.append(entry)
 
@@ -203,6 +219,19 @@ def _get_effective_verification_history(doc_hash: str) -> List[Dict[str, Any]]:
     if redis_history:
         return redis_history
     return get_mongo_verification_history(doc_hash)
+
+
+def _pending_teaches_for_user(
+    doc_hash: str,
+    user_id: str,
+) -> List[Dict[str, Any]]:
+    user = (user_id or "anonymous").strip() or "anonymous"
+    pending_teaches = get_pending_teaches(doc_hash)
+    return [
+        teach
+        for teach in pending_teaches
+        if isinstance(teach, dict) and str(teach.get("user_id", "")).strip() == user
+    ]
 
 @app.get("/")
 async def root():
@@ -439,7 +468,7 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
 
         record_user_teach(request.doc_hash, request.user_id)
 
-        pending_teaches = get_pending_teaches(request.doc_hash)
+        pending_teaches = _pending_teaches_for_user(request.doc_hash, request.user_id)
 
         # Use cached results instead of re-running the entire model pipeline.
         # This reduces teach latency from ~5-15s to <100ms.
@@ -452,15 +481,6 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
             # Fallback: cache miss (should not happen in normal flow)
             updated_results = model.predict_cuad(request.contract_text)
             updated_results = _apply_pending_teaches_to_results(updated_results, pending_teaches)
-
-        # Keep dedup cache in sync with staged re-classified output.
-        store_result(
-            doc_hash=request.doc_hash,
-            clauses=updated_results,
-            page_texts=cached.get("page_texts", []),
-            extracted_text=cached.get("extracted_text", request.contract_text),
-            file_type=cached.get("file_type", "unknown"),
-        )
 
         unknown_count = len([
             c for c in updated_results if c.get("clause_type") == "Unknown clause"
@@ -506,7 +526,7 @@ async def verify_document(request: VerifyRequest):
                 detail="Document analysis not found in cache. Please upload the document again.",
             )
 
-        pending_teaches = get_pending_teaches(request.doc_hash)
+        pending_teaches = _pending_teaches_for_user(request.doc_hash, request.user_id)
 
         # Authoritative verification source: server-side cached analysis.
         # Do not trust client-provided clauses for permission checks or proof.
@@ -549,7 +569,7 @@ async def verify_document(request: VerifyRequest):
                     file_type=str(cached.get("file_type", "unknown")),
                 )
 
-            clear_pending_teaches(request.doc_hash)
+            clear_pending_teaches_for_user(request.doc_hash, request.user_id)
 
             unknown_count = len([
                 c for c in clauses

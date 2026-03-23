@@ -118,7 +118,7 @@ def test_verify_commits_staged_feedback_and_returns_tx(
     monkeypatch.setattr(main_module, "_get_effective_verification_history", history_mock)
 
     clear_pending_mock = Mock(return_value=True)
-    monkeypatch.setattr(main_module, "clear_pending_teaches", clear_pending_mock)
+    monkeypatch.setattr(main_module, "clear_pending_teaches_for_user", clear_pending_mock)
 
     store_result_mock = Mock(return_value=True)
     monkeypatch.setattr(main_module, "store_result", store_result_mock)

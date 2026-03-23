@@ -80,7 +80,7 @@ export default function Home() {
     setIsClient(true);
 
     if (typeof window !== "undefined") {
-      const existing = localStorage.getItem("lexicache_user_id");
+      const existing = sessionStorage.getItem("lexicache_user_id");
       if (existing) {
         setUserId(existing);
       } else {
@@ -88,7 +88,7 @@ export default function Home() {
           typeof crypto !== "undefined" && "randomUUID" in crypto
             ? crypto.randomUUID()
             : `user_${Date.now()}`;
-        localStorage.setItem("lexicache_user_id", generated);
+        sessionStorage.setItem("lexicache_user_id", generated);
         setUserId(generated);
       }
     }
@@ -613,6 +613,15 @@ export default function Home() {
       }
       if (Array.isArray(data.history)) {
         setHistory(data.history);
+      }
+      if (result?.result) {
+        setResult({
+          ...result,
+          result: result.result.map((clause) => ({
+            ...clause,
+            is_staged: false,
+          })),
+        });
       }
       setShowHistory(true);
       alert(

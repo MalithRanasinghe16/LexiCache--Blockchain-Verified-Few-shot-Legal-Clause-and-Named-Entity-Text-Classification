@@ -116,6 +116,13 @@
       ],
       "count": 1,
       "first_learned": "2026-03-24T01:08:10.511743"
+    },
+    "Progress Reporting Clause": {
+      "examples": [
+        "1) The CONSULTANT shall submit written progress reports with each invoice. The report should be sufficiently detailed for the Contract Manager to determine if the CONSULTANT is performing to expectati"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-24T02:18:22.683588"
     }
   },
   "clause_colors": {
@@ -131,7 +138,8 @@
     "Liability": "hsl(328, 67%, 39%)",
     "Services clause": "hsl(81, 74%, 53%)",
     "Source Code Escrow Clause": "hsl(295, 86%, 43%)",
-    "Key Personnel Clause": "hsl(353, 69%, 43%)"
+    "Key Personnel Clause": "hsl(353, 69%, 43%)",
+    "Progress Reporting Clause": "hsl(133, 87%, 53%)"
   },
   "learned_examples": [
     {
@@ -10529,9 +10537,13 @@
     {
       "clause_type": "Key Personnel Clause",
       "text": "CONSULTANT, nor shall his or her agreed-upon function hereunder be changed, without the prior written consent of COMMISSION. Such consent shall not be unreasonably withheld."
+    },
+    {
+      "clause_type": "Progress Reporting Clause",
+      "text": "1) The CONSULTANT shall submit written progress reports with each invoice. The report should be sufficiently detailed for the Contract Manager to determine if the CONSULTANT is performing to expectations or is on schedule; to provide communication of interim findings; and to sufficiently address any difficulties or special problems encountered, so remedies can be developed. 2) The CONSULTANT\u2019s Project Manager shall meet with the COMMISSION\u2019s Contract Manager, as needed, to discuss progress on the contract."
     }
   ],
-  "timestamp": "2026-03-24T01:08:11.788548",
-  "total_learned": 16,
-  "total_examples": 2599
+  "timestamp": "2026-03-24T02:18:23.007509",
+  "total_learned": 17,
+  "total_examples": 2600
 }

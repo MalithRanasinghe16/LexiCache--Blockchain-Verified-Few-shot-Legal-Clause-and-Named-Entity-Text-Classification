@@ -236,6 +236,27 @@ def clear_pending_teaches(doc_hash: str) -> bool:
     return _save_document_meta(doc_hash, meta)
 
 
+def clear_pending_teaches_for_user(doc_hash: str, user_id: str) -> bool:
+    """Remove staged teaches only for the given user; keep other users' staged data."""
+    user = (user_id or "anonymous").strip() or "anonymous"
+    meta = get_document_meta(doc_hash)
+    if meta is None:
+        return False
+
+    pending = meta.get("pending_teaches")
+    entries: List[Dict[str, Any]] = pending if isinstance(pending, list) else []
+    filtered = [
+        entry
+        for entry in entries
+        if not (
+            isinstance(entry, dict)
+            and str(entry.get("user_id", "")).strip() == user
+        )
+    ]
+    meta["pending_teaches"] = filtered
+    return _save_document_meta(doc_hash, meta)
+
+
 def _get_total_teach_count(meta: Optional[Dict[str, Any]]) -> int:
     if not meta:
         return 0

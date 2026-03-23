@@ -15,6 +15,7 @@ export type ClauseResult = {
   display_end_idx?: number;
   page_number?: number;
   context_heading?: string;
+  is_staged?: boolean;
 };
 
 export type TextItem = {

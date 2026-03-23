@@ -65,6 +65,7 @@ export default function ClauseList({
       {clauses.map((clause) => {
         const isActive = isSameClause(activeClause, clause);
         const isUnknown = clause.clause_type === "Unknown clause";
+        const isStaged = Boolean(clause.is_staged);
         const stableKey = `${clause.clause_type}__${clause.start_idx ?? clause.span.slice(0, 40)}`;
 
         return (
@@ -101,15 +102,21 @@ export default function ClauseList({
                 </span>
               )}
 
+              {!isActive && isStaged && (
+                <span className="ml-auto rounded-full bg-[#dff7e3] px-2 py-0.5 text-xs font-semibold text-[#1e7a33]">
+                  Pending verify
+                </span>
+              )}
+
               {/* Unknown → teach prompt */}
-              {!isActive && isUnknown && (
+              {!isActive && isUnknown && !isStaged && (
                 <span className="ml-auto text-xs font-semibold text-[#b55f16]">
                   Click to teach →
                 </span>
               )}
 
               {/* Confidence */}
-              {!isActive && !isUnknown && (
+              {!isActive && !isUnknown && !isStaged && (
                 <span className="ml-auto text-xs font-semibold text-muted">
                   {(clause.confidence * 100).toFixed(1)}%
                 </span>
