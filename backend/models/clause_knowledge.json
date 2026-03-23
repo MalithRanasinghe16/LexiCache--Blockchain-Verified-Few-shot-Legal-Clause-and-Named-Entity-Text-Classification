@@ -109,6 +109,13 @@
       ],
       "count": 1,
       "first_learned": "2026-03-22T16:16:27.807266"
+    },
+    "Key Personnel Clause": {
+      "examples": [
+        "CONSULTANT, nor shall his or her agreed-upon function hereunder be changed, without the prior written consent of COMMISSION. Such consent shall not be unreasonably withheld."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-24T01:08:10.511743"
     }
   },
   "clause_colors": {
@@ -123,7 +130,8 @@
     "Confidentiality": "hsl(349, 64%, 50%)",
     "Liability": "hsl(328, 67%, 39%)",
     "Services clause": "hsl(81, 74%, 53%)",
-    "Source Code Escrow Clause": "hsl(295, 86%, 43%)"
+    "Source Code Escrow Clause": "hsl(295, 86%, 43%)",
+    "Key Personnel Clause": "hsl(353, 69%, 43%)"
   },
   "learned_examples": [
     {
@@ -10497,9 +10505,33 @@
     {
       "clause_type": "Transition Assistance Clause",
       "text": "Heliovarion Advanced Systems Corporation, a corporation duly incorporated under the laws of the State of Delaware, United States of America, with its principal executive offices located at"
+    },
+    {
+      "clause_type": "Transition Assistance Clause",
+      "text": ""
+    },
+    {
+      "clause_type": "Definition Clause",
+      "text": ""
+    },
+    {
+      "clause_type": "Identification of Parties Clause",
+      "text": ""
+    },
+    {
+      "clause_type": "Performance Obligation Clause",
+      "text": ""
+    },
+    {
+      "clause_type": "Party Identification Clause",
+      "text": ""
+    },
+    {
+      "clause_type": "Key Personnel Clause",
+      "text": "CONSULTANT, nor shall his or her agreed-upon function hereunder be changed, without the prior written consent of COMMISSION. Such consent shall not be unreasonably withheld."
     }
   ],
-  "timestamp": "2026-03-23T19:47:25.687577",
-  "total_learned": 15,
-  "total_examples": 2593
+  "timestamp": "2026-03-24T01:08:11.788548",
+  "total_learned": 16,
+  "total_examples": 2599
 }
