@@ -182,15 +182,21 @@ export default function ResultsSidebar({
 
                       <div className="mt-2 space-y-1 border-t border-line/70 pt-2">
                         <p className="text-xs text-muted">
-                          <span className="font-semibold text-foreground">Verified:</span>{" "}
+                          <span className="font-semibold text-foreground">
+                            Verified:
+                          </span>{" "}
                           {formatVerifiedAt(item.verified_at)}
                         </p>
                         <p className="text-xs text-muted">
-                          <span className="font-semibold text-foreground">Location:</span>{" "}
+                          <span className="font-semibold text-foreground">
+                            Location:
+                          </span>{" "}
                           {item.geo_summary || "Not captured"}
                         </p>
                         <p className="break-all text-[11px] text-muted">
-                          <span className="font-semibold text-foreground">Location hash:</span>{" "}
+                          <span className="font-semibold text-foreground">
+                            Location hash:
+                          </span>{" "}
                           {item.geo_hash || "N/A"}
                         </p>
                       </div>
