@@ -163,7 +163,9 @@ export default function ResultsSidebar({
                         </span>
                       </div>
 
-                      <p className="mt-1 text-xs text-muted">{item.verified_at}</p>
+                      <p className="mt-1 text-xs text-muted">
+                        {item.verified_at}
+                      </p>
                       <a
                         href={item.blockchain_link}
                         target="_blank"
