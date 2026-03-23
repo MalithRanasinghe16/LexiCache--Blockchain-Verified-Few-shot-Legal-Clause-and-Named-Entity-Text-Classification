@@ -341,7 +341,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contract_text: documentText,
-          unknown_span: selectedUnknownClause.span_exact || selectedUnknownClause.span,
+          unknown_span:
+            selectedUnknownClause.span_exact || selectedUnknownClause.span,
           new_type_name: newClauseTypeName.trim(),
           color: colorMap[newClauseTypeName.trim()] || generateRandomColor(),
           doc_hash: docHash,

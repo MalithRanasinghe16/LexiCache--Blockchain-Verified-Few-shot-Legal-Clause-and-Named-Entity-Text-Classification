@@ -3,7 +3,12 @@
 import { useRef, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
-import { AnalysisResult, ClauseResult, PageTextContent, TextItem } from "../types";
+import {
+  AnalysisResult,
+  ClauseResult,
+  PageTextContent,
+  TextItem,
+} from "../types";
 
 const Document = dynamic(
   () => import("react-pdf").then((mod) => mod.Document),
@@ -101,7 +106,10 @@ export default function PdfViewer({
         (dispEnd as number) > (dispStart as number) &&
         (dispEnd as number) <= sourceText.length
       ) {
-        const displaySlice = sourceText.slice(dispStart as number, dispEnd as number);
+        const displaySlice = sourceText.slice(
+          dispStart as number,
+          dispEnd as number,
+        );
         return displaySlice.replace(/\s+/g, " ").trim().slice(0, 320);
       }
 
@@ -122,22 +130,25 @@ export default function PdfViewer({
     [result],
   );
 
-  const getClauseRange = useCallback((clause: ClauseResult): { start: number; end: number } | null => {
-    const s = Number.isInteger(clause.display_start_idx)
-      ? (clause.display_start_idx as number)
-      : Number.isInteger(clause.start_idx)
-        ? (clause.start_idx as number)
-        : null;
-    const e = Number.isInteger(clause.display_end_idx)
-      ? (clause.display_end_idx as number)
-      : Number.isInteger(clause.end_idx)
-        ? (clause.end_idx as number)
-        : null;
+  const getClauseRange = useCallback(
+    (clause: ClauseResult): { start: number; end: number } | null => {
+      const s = Number.isInteger(clause.display_start_idx)
+        ? (clause.display_start_idx as number)
+        : Number.isInteger(clause.start_idx)
+          ? (clause.start_idx as number)
+          : null;
+      const e = Number.isInteger(clause.display_end_idx)
+        ? (clause.display_end_idx as number)
+        : Number.isInteger(clause.end_idx)
+          ? (clause.end_idx as number)
+          : null;
 
-    if (s === null || e === null) return null;
-    if (e <= s) return null;
-    return { start: s, end: e };
-  }, []);
+      if (s === null || e === null) return null;
+      if (e <= s) return null;
+      return { start: s, end: e };
+    },
+    [],
+  );
 
   const getPageInfo = useCallback(
     (pageNumber: number) => {
@@ -153,7 +164,9 @@ export default function PdfViewer({
       const range = getClauseRange(clause);
       const pageInfo = getPageInfo(pageNumber);
       if (range && pageInfo) {
-        return range.start < pageInfo.end_char && range.end > pageInfo.start_char;
+        return (
+          range.start < pageInfo.end_char && range.end > pageInfo.start_char
+        );
       }
       if (clause.page_number !== undefined) {
         return clause.page_number === pageNumber;
@@ -194,7 +207,9 @@ export default function PdfViewer({
         const ds = clause.display_start_idx as number;
         const de = clause.display_end_idx as number;
         if (ds >= 0 && de > ds && de <= sourceText.length) {
-          candidates.push(sourceText.slice(ds, de).replace(/\s+/g, " ").trim().slice(0, 320));
+          candidates.push(
+            sourceText.slice(ds, de).replace(/\s+/g, " ").trim().slice(0, 320),
+          );
         }
       }
 
@@ -206,7 +221,9 @@ export default function PdfViewer({
         const s = clause.start_idx as number;
         const e = clause.end_idx as number;
         if (s >= 0 && e > s && e <= sourceText.length) {
-          candidates.push(sourceText.slice(s, e).replace(/\s+/g, " ").trim().slice(0, 260));
+          candidates.push(
+            sourceText.slice(s, e).replace(/\s+/g, " ").trim().slice(0, 260),
+          );
         }
       }
 
@@ -231,7 +248,9 @@ export default function PdfViewer({
 
   const isClauseOnPage = useCallback(
     (clause: ClauseResult, pageNumber: number): boolean => {
-      return clause.page_number === undefined || clause.page_number === pageNumber;
+      return (
+        clause.page_number === undefined || clause.page_number === pageNumber
+      );
     },
     [],
   );
@@ -341,13 +360,13 @@ export default function PdfViewer({
           y: number;
           idx: number;
         }[] = [];
-          const allItems: {
-            item: TextItem;
-            x: number;
-            y: number;
-            idx: number;
-          }[] = [];
-          const itemToLineIndex = new Map<number, number>();
+        const allItems: {
+          item: TextItem;
+          x: number;
+          y: number;
+          idx: number;
+        }[] = [];
+        const itemToLineIndex = new Map<number, number>();
         matchedItemIndices.forEach((idx) => {
           const item = pageContent.items[idx];
           if (item) {
@@ -361,7 +380,8 @@ export default function PdfViewer({
 
         pageContent.items.forEach((item: TextItem, idx: number) => {
           const x = item.transform[4];
-          const y = pageContent.viewport.height - item.transform[5] - item.height;
+          const y =
+            pageContent.viewport.height - item.transform[5] - item.height;
           if (x >= 0 && y >= 0 && item.width > 0 && item.height > 0) {
             allItems.push({ item, x, y, idx });
           }
@@ -401,7 +421,9 @@ export default function PdfViewer({
               const line = allLines[lineIndex];
               line.minX = Math.min(line.minX, current.x);
               line.maxX = Math.max(line.maxX, current.x + current.item.width);
-              line.avgHeight = (line.avgHeight * line.count + current.item.height) / (line.count + 1);
+              line.avgHeight =
+                (line.avgHeight * line.count + current.item.height) /
+                (line.count + 1);
               line.count += 1;
               line.indices.push(current.idx);
             }
@@ -422,7 +444,10 @@ export default function PdfViewer({
               positions.push({
                 x: Math.max(0, line.minX - 4),
                 y: Math.max(0, line.y),
-                width: Math.min(line.maxX - line.minX + 8, pageWidth - line.minX),
+                width: Math.min(
+                  line.maxX - line.minX + 8,
+                  pageWidth - line.minX,
+                ),
                 height: Math.max(line.avgHeight, 14),
               });
             });
@@ -469,7 +494,11 @@ export default function PdfViewer({
   );
 
   const findClausePositions = useCallback(
-    (clause: ClauseResult, pageContent: PageTextContent, pageNumber: number) => {
+    (
+      clause: ClauseResult,
+      pageContent: PageTextContent,
+      pageNumber: number,
+    ) => {
       const candidates = getClauseSearchCandidates(clause, pageNumber);
       for (const candidate of candidates) {
         const positions = findTextPositions(candidate, pageContent);
@@ -501,14 +530,20 @@ export default function PdfViewer({
       activeClause.page_number <= pageTextContents.length
     ) {
       const targetIndex = activeClause.page_number - 1;
-      const mappedPositions = findClausePositions(activeClause, pageTextContents[targetIndex], targetIndex + 1);
+      const mappedPositions = findClausePositions(
+        activeClause,
+        pageTextContents[targetIndex],
+        targetIndex + 1,
+      );
       if (mappedPositions.length > 0) {
         setTimeout(() => {
           pageContainerRefs.current[targetIndex]?.scrollIntoView({
             behavior: "smooth",
             block: "center",
           });
-          console.log(`Scrolled to backend-mapped page ${activeClause.page_number}`);
+          console.log(
+            `Scrolled to backend-mapped page ${activeClause.page_number}`,
+          );
         }, 350);
         return;
       }
@@ -516,7 +551,11 @@ export default function PdfViewer({
 
     // Find the first page where the active clause text appears
     for (let i = 0; i < pageTextContents.length; i++) {
-      const positions = findClausePositions(activeClause, pageTextContents[i], i + 1);
+      const positions = findClausePositions(
+        activeClause,
+        pageTextContents[i],
+        i + 1,
+      );
       if (positions.length > 0) {
         console.log(
           `Found clause on page ${i + 1}, scrolling to it...`,
@@ -572,7 +611,11 @@ export default function PdfViewer({
             clause.clause_type === "Unknown clause"
               ? "#F97316"
               : colorMap[clause.clause_type] || "#6b7280";
-          const positions = findClausePositions(clause, pageContent, pageIndex + 1);
+          const positions = findClausePositions(
+            clause,
+            pageContent,
+            pageIndex + 1,
+          );
           positions.forEach((pos) => {
             ctx.fillStyle = colorWithOpacity(color, 0.3);
             ctx.fillRect(pos.x, pos.y, pos.width, pos.height);
@@ -584,7 +627,11 @@ export default function PdfViewer({
 
         // Pass 2: Draw the ACTIVE (selected) clause with a strong yellow highlight
         if (activeClause) {
-          const positions = findClausePositions(activeClause, pageContent, pageIndex + 1);
+          const positions = findClausePositions(
+            activeClause,
+            pageContent,
+            pageIndex + 1,
+          );
           positions.forEach((pos) => {
             // Bright yellow fill
             ctx.fillStyle = "rgba(253, 224, 71, 0.65)";
@@ -599,7 +646,9 @@ export default function PdfViewer({
         // Pass 3: Search highlight (if from search bar, not clause click)
         if (
           highlightedText &&
-          (!activeClause || highlightedText !== (activeClause.span_display || activeClause.span))
+          (!activeClause ||
+            highlightedText !==
+              (activeClause.span_display || activeClause.span))
         ) {
           const positions = findTextPositions(
             highlightedText,

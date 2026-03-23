@@ -78,8 +78,14 @@ export default function DocxViewer({
         Number.isInteger(clause.display_start_idx) &&
         Number.isInteger(clause.display_end_idx)
       ) {
-        const start = Math.max(0, Math.min(clause.display_start_idx as number, documentText.length));
-        const end = Math.max(start, Math.min(clause.display_end_idx as number, documentText.length));
+        const start = Math.max(
+          0,
+          Math.min(clause.display_start_idx as number, documentText.length),
+        );
+        const end = Math.max(
+          start,
+          Math.min(clause.display_end_idx as number, documentText.length),
+        );
         if (end > start) {
           clausePositions.push({
             start,
