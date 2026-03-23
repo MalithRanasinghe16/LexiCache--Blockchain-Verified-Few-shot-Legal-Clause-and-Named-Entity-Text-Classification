@@ -140,25 +140,41 @@ export default function ResultsSidebar({
                   No verification attempts yet.
                 </p>
               ) : (
-                history.map((item) => (
-                  <div
-                    key={`${item.attempt}-${item.tx_hash}`}
-                    className="rounded-xl border border-line bg-paper p-3"
-                  >
-                    <p className="text-sm font-semibold text-foreground">
-                      Attempt {item.attempt}: {item.clause_count} clauses
-                    </p>
-                    <p className="text-xs text-muted">{item.verified_at}</p>
-                    <a
-                      href={item.blockchain_link}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-semibold text-brand hover:underline"
+                history.map((item) => {
+                  const unknown = Math.max(0, Number(item.unknown_count || 0));
+                  const total = Math.max(0, Number(item.clause_count || 0));
+                  const known = Math.max(0, total - unknown);
+
+                  return (
+                    <div
+                      key={`${item.attempt}-${item.tx_hash}`}
+                      className="rounded-xl border border-line bg-paper p-3"
                     >
-                      View blockchain record
-                    </a>
-                  </div>
-                ))
+                      <p className="text-sm font-semibold text-foreground">
+                        Attempt {item.attempt}: {total} clauses
+                      </p>
+
+                      <div className="mt-1 flex items-center gap-2 text-xs">
+                        <span className="rounded-full bg-[#e6f6f3] px-2 py-0.5 font-semibold text-[#1a6157]">
+                          {known} Known
+                        </span>
+                        <span className="rounded-full bg-[#fce8d6] px-2 py-0.5 font-semibold text-[#9b5a17]">
+                          {unknown} Unknown
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-xs text-muted">{item.verified_at}</p>
+                      <a
+                        href={item.blockchain_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold text-brand hover:underline"
+                      >
+                        View blockchain record
+                      </a>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}
