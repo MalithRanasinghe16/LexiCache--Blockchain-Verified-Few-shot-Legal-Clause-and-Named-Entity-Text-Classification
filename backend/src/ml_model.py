@@ -3,6 +3,7 @@ Adaptive meta-learning model for LexiCache.
 Supports online adaptation: detects unknown clauses, accepts user labels, and meta-learns in real-time.
 """
 
+import time
 import torch
 import torch.nn as nn
 import numpy as np
@@ -378,6 +379,7 @@ class LexiCacheModel:
                  context_promote_threshold: float = 0.70,
                  model_distance_scale: float = 1.8,
                  hybrid_agreement_bonus: float = 0.15):
+        t_total = time.time()
         print("[LexiCacheModel] Loading adaptive meta-learning model...")
 
         projection_path = self._resolve_existing_path(
@@ -398,10 +400,12 @@ class LexiCacheModel:
             "data/cuad_train",
         )
 
+        t0 = time.time()
         self.model = PrototypicalNetwork()
         self.projection = nn.Linear(self.model.hidden_size, self.model.hidden_size).to(self.model.device)
         self.projection.load_state_dict(torch.load(projection_path, map_location=self.model.device))
         self.projection.eval()
+        print(f"  [timing] Legal-BERT + projection loaded in {time.time() - t0:.1f}s")
 
         # Dynamic support set for online meta-learning
         self.support_embeddings: List[Any] = []
@@ -435,16 +439,20 @@ class LexiCacheModel:
 
         # Always seed initial support from CUAD train split when available.
         # In evaluation mode this is the only support source for a fair baseline.
+        t0 = time.time()
         self._load_initial_cuad_support(cuad_train_path, max_seed_examples_per_type)
+        print(f"  [timing] CUAD seed support loaded in {time.time() - t0:.1f}s")
 
         # Runtime default keeps existing learned-example loading behavior.
         if not self.use_train_only:
+            t0 = time.time()
             self._load_support_set()
             self._load_knowledge_base()
+            print(f"  [timing] Learned support + knowledge loaded in {time.time() - t0:.1f}s")
 
         self._ensure_label_ids()
 
-        print(f"[LexiCacheModel] Adaptive model ready. Unknown clause detection enabled.")
+        print(f"[LexiCacheModel] Adaptive model ready in {time.time() - t_total:.1f}s. Unknown clause detection enabled.")
         print(f"  Device: {self.model.device}")
         print(f"  Support set size: {len(self.support_embeddings)} examples")
         print(f"  Known CUAD types: {len(CLAUSE_KEYWORDS_WEIGHTED)}")
@@ -1040,6 +1048,12 @@ class LexiCacheModel:
                 self.next_label_id += 1
 
     def _load_initial_cuad_support(self, cuad_train_path: str, max_seed_examples_per_type: int = 12):
+        """Seed initial support from CUAD train split.
+
+        Performance: uses a pre-computed tensor cache (models/cuad_seed_cache.pt)
+        so subsequent startups load instantly without re-running Legal-BERT.
+        The cache is auto-generated on the first startup and reused thereafter.
+        """
         train_dir = Path(cuad_train_path)
         if not train_dir.exists():
             print(f"  CUAD train seed path not found, skipping: {train_dir}")
@@ -1050,8 +1064,29 @@ class LexiCacheModel:
             print(f"  CUAD train seed path has no JSON files, skipping: {train_dir}")
             return
 
+        # --- Try loading pre-computed cache first ---
+        cache_path = Path("models/cuad_seed_cache.pt")
+        if cache_path.exists():
+            try:
+                cached = torch.load(cache_path, map_location='cpu')
+                cached_embeddings = cached['embeddings']
+                cached_labels = cached['labels']
+                cached_texts = cached['texts']
+                if isinstance(cached_embeddings, list) and len(cached_embeddings) > 0:
+                    self.support_embeddings.extend(cached_embeddings)
+                    self.support_labels.extend(cached_labels)
+                    self.support_texts.extend(cached_texts)
+                    self.support_sources.extend(['seed_train'] * len(cached_labels))
+                    print(f"  Loaded {len(cached_embeddings)} CUAD seed examples from cache (instant)")
+                    return
+            except Exception as e:
+                print(f"  Cache load failed, re-embedding: {e}")
+
+        # --- Cache miss: collect all examples then batch-embed ---
         type_counts: Dict[str, int] = defaultdict(int)
-        loaded = 0
+        all_texts: List[str] = []
+        all_labels: List[str] = []
+        all_spans: List[str] = []
 
         print(f"  Seeding support set from CUAD train split ({len(train_files)} files)...")
         for path in train_files:
@@ -1087,21 +1122,45 @@ class LexiCacheModel:
                 if len(span) < 30:
                     continue
 
-                try:
-                    normalized = normalize_text(span)
-                    with torch.no_grad():
-                        emb = self.model([normalized], batch_size=1)
-                        proj = self.projection(emb.to(self.model.device))
-                    self.support_embeddings.append(proj.squeeze(0).cpu())
-                    self.support_labels.append(clause_type)
-                    self.support_texts.append(span)
-                    self.support_sources.append('seed_train')
-                    type_counts[clause_type] += 1
-                    loaded += 1
-                except Exception as e:
-                    print(f"    Failed to embed seed example in {path.name}: {e}")
+                normalized = normalize_text(span)
+                all_texts.append(normalized)
+                all_labels.append(clause_type)
+                all_spans.append(span)
+                type_counts[clause_type] += 1
 
-        print(f"  Loaded {loaded} CUAD train seed examples across {len(type_counts)} clause types")
+        if not all_texts:
+            print("  No CUAD seed examples found after filtering")
+            return
+
+        # Batch embed all at once (batch_size=32 for speed)
+        print(f"  Batch-embedding {len(all_texts)} CUAD seed examples...")
+        try:
+            with torch.no_grad():
+                all_emb = self.model(all_texts, batch_size=32)
+                all_proj = self.projection(all_emb.to(self.model.device))
+
+            seed_embeddings = [all_proj[i].cpu() for i in range(all_proj.shape[0])]
+            self.support_embeddings.extend(seed_embeddings)
+            self.support_labels.extend(all_labels)
+            self.support_texts.extend(all_spans)
+            self.support_sources.extend(['seed_train'] * len(all_labels))
+
+            # Save cache for instant loading on next startup
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                torch.save({
+                    'embeddings': seed_embeddings,
+                    'labels': all_labels,
+                    'texts': all_spans,
+                    'type_counts': dict(type_counts),
+                }, cache_path)
+                print(f"  Saved CUAD seed cache to {cache_path}")
+            except Exception as e:
+                print(f"  Warning: failed to save seed cache: {e}")
+
+            print(f"  Loaded {len(all_labels)} CUAD train seed examples across {len(type_counts)} clause types")
+        except Exception as e:
+            print(f"  Failed to batch-embed CUAD seeds: {e}")
 
     def _load_support_set(self):
         if Path(self.support_set_path).exists():
@@ -1166,6 +1225,12 @@ class LexiCacheModel:
             print(f"  Failed to save support set: {e}")
 
     def _load_knowledge_base(self):
+        """Load knowledge base metadata (learned_types, clause_colors).
+
+        Embeddings are NOT rebuilt here — they are already loaded from
+        support_set.pkl by _load_support_set().  This avoids redundant
+        Legal-BERT inference on every startup.
+        """
         if Path(self.knowledge_path).exists():
             try:
                 with open(self.knowledge_path, 'r') as f:
@@ -1173,26 +1238,46 @@ class LexiCacheModel:
                     self.learned_types = data.get('learned_types', {})
                     self.clause_colors = data.get('clause_colors', {})
                     learned_examples = data.get('learned_examples', [])
-                    if learned_examples:
-                        print(f"  Rebuilding support set from {len(learned_examples)} saved examples...")
+
+                    # Only rebuild embeddings if support_set.pkl didn't
+                    # already provide them (e.g. pkl was deleted/corrupt).
+                    learned_already_loaded = any(
+                        s == 'learned' for s in self.support_sources
+                    )
+                    if learned_examples and not learned_already_loaded:
+                        print(f"  Rebuilding support set from {len(learned_examples)} saved examples (pkl missing)...")
+                        rebuild_texts = []
+                        rebuild_labels = []
+                        rebuild_spans = []
                         for example in learned_examples:
-                            clause_type = example['clause_type']
-                            text = example['text']
+                            clause_type = example.get('clause_type', '')
+                            text = example.get('text', '')
+                            if not clause_type or not text:
+                                continue
+                            rebuild_texts.append(normalize_text(text))
+                            rebuild_labels.append(clause_type)
+                            rebuild_spans.append(text)
+
+                        if rebuild_texts:
                             try:
-                                normalized = normalize_text(text)
                                 with torch.no_grad():
-                                    emb = self.model([normalized], batch_size=1)
-                                    proj = self.projection(emb.to(self.model.device))
-                                if clause_type not in self.label_to_id:
-                                    self.label_to_id[clause_type] = self.next_label_id
-                                    self.next_label_id += 1
-                                self.support_embeddings.append(proj.squeeze(0).cpu())
-                                self.support_labels.append(clause_type)
-                                self.support_texts.append(text)
-                                self.support_sources.append('learned')
+                                    all_emb = self.model(rebuild_texts, batch_size=32)
+                                    all_proj = self.projection(all_emb.to(self.model.device))
+                                for i in range(all_proj.shape[0]):
+                                    label = rebuild_labels[i]
+                                    if label not in self.label_to_id:
+                                        self.label_to_id[label] = self.next_label_id
+                                        self.next_label_id += 1
+                                    self.support_embeddings.append(all_proj[i].cpu())
+                                    self.support_labels.append(label)
+                                    self.support_texts.append(rebuild_spans[i])
+                                    self.support_sources.append('learned')
+                                print(f"  Rebuilt support set with {len(self.support_embeddings)} examples")
                             except Exception as e:
-                                print(f"    Failed to rebuild embedding for {clause_type}: {e}")
-                        print(f"  Rebuilt support set with {len(self.support_embeddings)} examples")
+                                print(f"    Failed to batch-rebuild embeddings: {e}")
+                    elif learned_examples:
+                        print(f"  Skipped knowledge-base re-embedding ({len(learned_examples)} examples already in support_set.pkl)")
+
                 print(f"  Loaded {len(self.learned_types)} learned clause types")
             except Exception as e:
                 print(f"  Failed to load knowledge base: {e}")

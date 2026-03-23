@@ -440,11 +440,20 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
         record_user_teach(request.doc_hash, request.user_id)
 
         pending_teaches = get_pending_teaches(request.doc_hash)
-        updated_results = model.predict_cuad(request.contract_text)
-        updated_results = _apply_pending_teaches_to_results(updated_results, pending_teaches)
+
+        # Use cached results instead of re-running the entire model pipeline.
+        # This reduces teach latency from ~5-15s to <100ms.
+        cached = get_cached_result(request.doc_hash) or {}
+        cached_clauses = cached.get("clauses", [])
+
+        if cached_clauses:
+            updated_results = _apply_pending_teaches_to_results(cached_clauses, pending_teaches)
+        else:
+            # Fallback: cache miss (should not happen in normal flow)
+            updated_results = model.predict_cuad(request.contract_text)
+            updated_results = _apply_pending_teaches_to_results(updated_results, pending_teaches)
 
         # Keep dedup cache in sync with staged re-classified output.
-        cached = get_cached_result(request.doc_hash) or {}
         store_result(
             doc_hash=request.doc_hash,
             clauses=updated_results,
