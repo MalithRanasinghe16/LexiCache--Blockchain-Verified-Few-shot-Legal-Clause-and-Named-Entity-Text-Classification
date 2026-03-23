@@ -646,8 +646,8 @@ export default function Home() {
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
-      <div className="max-w-7xl mx-auto bg-white rounded-3xl shadow-2xl overflow-hidden">
+    <main className="min-h-screen px-4 py-5 lg:px-8 lg:py-8">
+      <div className="mx-auto max-w-screen-2xl overflow-hidden rounded-3xl border border-line bg-paper shadow-[0_26px_70px_rgba(66,55,40,0.16)]">
         {/* ── Header ── */}
         <AppHeader />
 

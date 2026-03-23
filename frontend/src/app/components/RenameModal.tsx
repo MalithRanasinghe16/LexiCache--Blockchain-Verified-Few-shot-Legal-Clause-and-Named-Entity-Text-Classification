@@ -34,17 +34,17 @@ export default function RenameModal({
   if (!isOpen || !clause) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-line bg-paper shadow-2xl">
+        <div className="p-6 lg:p-7">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold text-gray-900">
+            <h2 className="text-2xl font-semibold text-foreground">
               Teach the System
             </h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition"
+              className="rounded-lg border border-line bg-white p-1.5 text-muted transition hover:text-foreground"
             >
               <X className="w-6 h-6" />
             </button>
@@ -52,22 +52,22 @@ export default function RenameModal({
 
           {/* Body */}
           <div className="mb-6">
-            <p className="text-gray-600 mb-4">
+            <p className="mb-4 text-sm text-muted">
               The system found a clause it doesn&apos;t recognize. Help it learn
               by naming this clause type!
             </p>
 
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
-              <p className="text-sm font-semibold text-orange-800 mb-2">
+            <div className="mb-4 rounded-xl border border-[#ebcfad] bg-[#fff4e7] p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#8a5a22]">
                 Unknown Clause Text:
               </p>
-              <p className="text-sm text-gray-700 italic max-h-40 overflow-y-auto">
+              <p className="max-h-40 overflow-y-auto text-sm italic text-[#6f4112]">
                 &quot;{clause.span}&quot;
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="mb-2 block text-sm font-semibold text-foreground">
                 What kind of clause is this?
               </label>
               <input
@@ -78,10 +78,10 @@ export default function RenameModal({
                   if (e.key === "Enter" && newName.trim()) onConfirm();
                 }}
                 placeholder="e.g., Escrow Provision, Audit Rights, etc."
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-gray-900"
+                className="w-full rounded-xl border border-line bg-white p-3 text-foreground outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/25"
                 autoFocus
               />
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="mt-2 text-xs text-muted">
                 Examples: &quot;Confidentiality&quot;, &quot;Payment
                 Terms&quot;, &quot;Liability Waiver&quot;
               </p>
@@ -92,17 +92,17 @@ export default function RenameModal({
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition font-semibold"
+              className="flex-1 rounded-xl border border-line bg-white px-4 py-3 text-sm font-semibold uppercase tracking-wide text-foreground transition hover:border-brand hover:text-brand"
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={!newName.trim() || isRenaming}
-              className={`flex-1 px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 ${
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold uppercase tracking-wide transition ${
                 !newName.trim() || isRenaming
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-blue-600 text-white hover:bg-blue-700"
+                  ? "cursor-not-allowed bg-gray-300 text-gray-500"
+                    : "bg-brand text-white hover:bg-[#18413d]"
               }`}
             >
               {isRenaming ? (

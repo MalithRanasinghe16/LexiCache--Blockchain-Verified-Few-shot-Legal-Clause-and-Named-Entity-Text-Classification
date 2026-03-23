@@ -1,26 +1,61 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f3ef;
+  --paper: #fffdf9;
+  --panel: #f4efe6;
+  --foreground: #1c1a17;
+  --muted: #6f665a;
+  --line: #ddcfba;
+  --brand: #1f4f4a;
+  --brand-soft: #dcece8;
+  --accent: #b8722a;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(circle at 10% 15%, #ece6dd 0%, transparent 28%),
+    radial-gradient(circle at 90% 90%, #e8efe7 0%, transparent 22%),
+    var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif;
+  min-height: 100vh;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #b8ac9b transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #b8ac9b;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

@@ -1,4 +1,3 @@
-import { Filter } from "lucide-react";
 import { ClauseResult } from "../types";
 
 type Props = {
@@ -27,14 +26,16 @@ export default function FilterPanel({
   onSelectAll,
 }: Props) {
   return (
-    <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-4 text-black">
+    <div className="mb-4 space-y-4 rounded-2xl border border-line bg-white p-4">
       {/* Clause Type Checkboxes */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium text-black">Clause Types</label>
+          <label className="text-sm font-semibold text-foreground">
+            Clause Types
+          </label>
           <button
             onClick={onSelectAll}
-            className="text-xs text-blue-600 hover:text-blue-800"
+            className="text-xs font-semibold text-brand hover:underline"
           >
             {selectedClauseTypes.size === clauseTypes.length
               ? "Deselect All"
@@ -45,20 +46,20 @@ export default function FilterPanel({
           {clauseTypes.map((type) => (
             <label
               key={type}
-              className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-2 rounded"
+              className="flex cursor-pointer items-center gap-2 rounded-lg p-2 transition hover:bg-panel/45"
             >
               <input
                 type="checkbox"
                 checked={selectedClauseTypes.has(type)}
                 onChange={() => onToggleType(type)}
-                className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                className="h-4 w-4 rounded border-line text-brand focus:ring-2 focus:ring-brand"
               />
               <div
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: colorMap[type] }}
               />
-              <span className="text-sm flex-1">{type}</span>
-              <span className="text-xs text-black">
+              <span className="flex-1 text-sm text-foreground">{type}</span>
+              <span className="text-xs text-muted">
                 ({allClauses.filter((c) => c.clause_type === type).length})
               </span>
             </label>
@@ -68,7 +69,7 @@ export default function FilterPanel({
 
       {/* Confidence Slider */}
       <div>
-        <label className="text-sm font-medium text-black block mb-2">
+        <label className="mb-2 block text-sm font-semibold text-foreground">
           Minimum Confidence: {minConfidence}%
         </label>
         <input
@@ -78,9 +79,9 @@ export default function FilterPanel({
           step="5"
           value={minConfidence}
           onChange={(e) => onConfidenceChange(Number(e.target.value))}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+          className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-[#e6dbca]"
         />
-        <div className="flex justify-between text-xs text-black mt-1">
+        <div className="mt-1 flex justify-between text-xs text-muted">
           <span>0%</span>
           <span>50%</span>
           <span>100%</span>
@@ -88,7 +89,7 @@ export default function FilterPanel({
       </div>
 
       {/* Summary */}
-      <div className="text-xs text-black pt-2 border-t border-gray-200">
+      <div className="border-t border-line pt-2 text-xs text-muted">
         Showing {filteredCount} of {totalCount} clauses
       </div>
     </div>

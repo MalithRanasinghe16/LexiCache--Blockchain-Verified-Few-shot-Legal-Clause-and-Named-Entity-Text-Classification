@@ -47,12 +47,12 @@ export default function ClauseList({
 
   if (clauses.length === 0) {
     return (
-      <div className="text-center text-black py-8">
-        <Filter className="w-12 h-12 mx-auto mb-2 opacity-30" />
+      <div className="rounded-2xl border border-line bg-white py-8 text-center text-muted">
+        <Filter className="mx-auto mb-2 h-12 w-12 opacity-40" />
         <p className="text-sm">No clauses match your filters</p>
         <button
           onClick={onResetFilters}
-          className="text-sm text-blue-600 hover:text-blue-800 mt-2"
+          className="mt-2 text-sm font-semibold text-brand hover:underline"
         >
           Reset Filters
         </button>
@@ -61,7 +61,7 @@ export default function ClauseList({
   }
 
   return (
-    <div className="space-y-3 max-h-96 overflow-y-auto text-black">
+    <div className="max-h-96 space-y-3 overflow-y-auto">
       {clauses.map((clause) => {
         const isActive = isSameClause(activeClause, clause);
         const isUnknown = clause.clause_type === "Unknown clause";
@@ -70,18 +70,18 @@ export default function ClauseList({
         return (
           <div
             key={stableKey}
-            className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${
+            className={`group cursor-pointer rounded-xl border-l-4 p-4 transition-all ${
               isActive
-                ? "border-amber-400 bg-amber-50 shadow-md ring-2 ring-amber-300"
+                ? "border-l-[#b8722a] border-t border-r border-b border-[#e4c59f] bg-[#fff6eb] shadow-sm"
                 : isUnknown
-                  ? "border-orange-300 bg-orange-50 hover:bg-orange-100"
-                  : "border-gray-200 bg-gray-50 hover:bg-gray-100"
+                  ? "border-l-[#de7a1f] border-t border-r border-b border-[#edd2b1] bg-[#fff9f1] hover:bg-[#fff3e2]"
+                  : "border-l-brand border-t border-r border-b border-line bg-white hover:bg-panel/25"
             }`}
             onClick={() => onClauseClick(clause)}
           >
             <div className="flex items-center gap-2 mb-2">
               <div
-                className="w-4 h-4 rounded-full shadow-sm flex-shrink-0"
+                className="h-3.5 w-3.5 shrink-0 rounded-full shadow-sm"
                 style={{
                   backgroundColor: isUnknown
                     ? "#F97316"
@@ -89,38 +89,40 @@ export default function ClauseList({
                 }}
               />
               <span
-                className={`font-medium ${isActive ? "text-amber-800" : ""}`}
+                className={`text-sm font-semibold ${isActive ? "text-[#8a4f16]" : "text-foreground"}`}
               >
                 {clause.clause_type}
               </span>
 
               {/* Active badge */}
               {isActive && (
-                <span className="ml-auto flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-200 px-2 py-0.5 rounded-full">
+                <span className="ml-auto rounded-full bg-[#f8dfc0] px-2 py-0.5 text-xs font-semibold text-[#8a4f16]">
                   Showing
                 </span>
               )}
 
               {/* Unknown → teach prompt */}
               {!isActive && isUnknown && (
-                <span className="ml-auto text-xs text-orange-600 font-semibold">
+                <span className="ml-auto text-xs font-semibold text-[#b55f16]">
                   Click to teach →
                 </span>
               )}
 
               {/* Confidence */}
               {!isActive && !isUnknown && (
-                <span className="ml-auto text-sm text-black">
+                <span className="ml-auto text-xs font-semibold text-muted">
                   {(clause.confidence * 100).toFixed(1)}%
                 </span>
               )}
             </div>
 
-            <p className="text-sm text-black line-clamp-2">{clause.span}</p>
+            <p className="line-clamp-2 text-sm leading-relaxed text-muted">
+              {clause.span}
+            </p>
 
             {/* Active: show jump-to hint */}
             {isActive && (
-              <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+              <p className="mt-1 flex items-center gap-1 text-xs text-[#9a5d21]">
                 ↑ Scrolled to location in document
               </p>
             )}

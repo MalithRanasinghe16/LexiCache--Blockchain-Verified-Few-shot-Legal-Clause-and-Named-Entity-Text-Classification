@@ -191,9 +191,9 @@ export default function DocxViewer({
   };
 
   return (
-    <div className="bg-white p-8 shadow-sm">
-      <div className="mb-4 text-xs text-black flex items-center gap-2">
-        <FileText className="w-4 h-4" />
+    <div className="rounded-xl border border-[#d7cab8] bg-[#fffdf9] p-6 shadow-[0_12px_36px_rgba(66,54,39,0.08)] lg:p-8">
+      <div className="mb-4 flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-muted">
+        <FileText className="h-4 w-4" />
         <span>
           {file?.name} ({file?.name.split(".").pop()?.toUpperCase()})
         </span>

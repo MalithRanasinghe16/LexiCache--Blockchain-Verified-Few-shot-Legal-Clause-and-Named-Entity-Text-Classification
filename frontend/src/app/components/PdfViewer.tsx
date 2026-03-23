@@ -901,9 +901,9 @@ export default function PdfViewer({
 
   if (!isClient) {
     return (
-      <div className="p-12 text-center flex items-center justify-center gap-3">
-        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-        <span className="text-gray-600">Initializing PDF viewer...</span>
+      <div className="flex items-center justify-center gap-3 p-12 text-center">
+        <Loader2 className="h-6 w-6 animate-spin text-brand" />
+        <span className="text-muted">Initializing PDF viewer...</span>
       </div>
     );
   }
@@ -913,13 +913,13 @@ export default function PdfViewer({
       file={file}
       onLoadSuccess={onDocumentLoadSuccess}
       loading={
-        <div className="p-12 text-center flex items-center justify-center gap-3">
-          <Loader2 className="w-6 h-6 animate-spin" />
+        <div className="flex items-center justify-center gap-3 p-12 text-center text-muted">
+          <Loader2 className="h-6 w-6 animate-spin" />
           Loading PDF...
         </div>
       }
       error={
-        <div className="p-12 text-center text-red-500">
+        <div className="p-12 text-center text-red-600">
           Failed to load PDF. The file may be corrupted or unsupported.
         </div>
       }
@@ -927,7 +927,7 @@ export default function PdfViewer({
       {Array.from(new Array(numPages), (_, index) => (
         <div
           key={index}
-          className="relative mb-4"
+          className="relative mb-6"
           ref={(el) => {
             pageContainerRefs.current[index] = el;
           }}
@@ -935,7 +935,7 @@ export default function PdfViewer({
           <Page
             pageNumber={index + 1}
             width={pageWidth}
-            className="shadow-sm"
+            className="mx-auto rounded-sm shadow-[0_12px_28px_rgba(58,46,32,0.15)]"
           />
           <canvas
             ref={(el) => {
@@ -946,7 +946,7 @@ export default function PdfViewer({
             height={pageHeights[index] || 1100}
             style={{ width: pageWidth, height: pageHeights[index] || 1100 }}
           />
-          <div className="text-center text-xs text-black py-2">
+          <div className="py-2 text-center text-xs uppercase tracking-[0.11em] text-muted">
             Page {index + 1} of {numPages}
           </div>
         </div>

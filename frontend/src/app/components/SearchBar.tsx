@@ -55,9 +55,9 @@ export default function SearchBar({
   const hasSearch = searchTerm.trim().length > 0;
 
   return (
-    <div>
-      <h3 className="font-semibold mb-4 flex items-center gap-2 text-black">
-        <Search className="w-5 h-5 text-black" /> Search in Document
+    <div className="rounded-2xl border border-line bg-white p-4">
+      <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.12em] text-foreground">
+        <Search className="h-4 w-4 text-brand" /> Search in Document
       </h3>
       <div className="flex items-center gap-1.5">
         {/* Input */}
@@ -68,11 +68,11 @@ export default function SearchBar({
             value={searchTerm}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Search text... (Ctrl+F)"
-            className="w-full p-3 pr-20 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-black"
+            className="w-full rounded-xl border border-line p-3 pr-20 text-sm text-foreground outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/25"
           />
           {/* Match counter inside input */}
           {hasSearch && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-mono select-none pointer-events-none">
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 select-none font-mono text-xs text-muted">
               {totalMatches > 0
                 ? `${currentMatchIndex + 1} of ${totalMatches}`
                 : "No matches"}
@@ -85,7 +85,7 @@ export default function SearchBar({
           onClick={onPrev}
           disabled={!hasSearch || totalMatches === 0}
           title="Previous match (Shift+Enter)"
-          className="p-2.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition text-black"
+          className="rounded-lg border border-line bg-panel/30 p-2.5 text-foreground transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
         >
           <ChevronUp className="w-4 h-4" />
         </button>
@@ -93,7 +93,7 @@ export default function SearchBar({
           onClick={onNext}
           disabled={!hasSearch || totalMatches === 0}
           title="Next match (Enter)"
-          className="p-2.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition text-black"
+          className="rounded-lg border border-line bg-panel/30 p-2.5 text-foreground transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
         >
           <ChevronDown className="w-4 h-4" />
         </button>
@@ -103,7 +103,7 @@ export default function SearchBar({
           onClick={onClear}
           disabled={!hasSearch}
           title="Clear search (Esc)"
-          className="p-2.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition text-black"
+          className="rounded-lg border border-line bg-panel/30 p-2.5 text-foreground transition hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-30"
         >
           <X className="w-4 h-4" />
         </button>
