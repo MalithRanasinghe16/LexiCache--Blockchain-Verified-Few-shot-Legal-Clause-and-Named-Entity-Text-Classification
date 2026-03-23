@@ -736,14 +736,16 @@ class LexiCacheModel:
         the segment is not a clause. Structural garbage (short segments,
         page numbers, bare headers) is filtered in predict_cuad by length.
         """
-        # Use raw text - do NOT normalize
+        # Use raw text for keyword classification.
         # normalize_text() strips capitalization and legal punctuation that
         # the keyword heuristics depend on (e.g. "INDEMNIFICATION", "GOVERNING LAW").
         raw = segment_text
 
-        # Model embedding from raw text
+        # Model embedding MUST be from normalized text so it matches the support set
+        # (which is built using normalize_text in learn_from_feedback).
         with torch.no_grad():
-            emb = self.model([raw], batch_size=1)
+            normalized_for_emb = normalize_text(raw)
+            emb = self.model([normalized_for_emb], batch_size=1)
             proj = self.projection(emb.to(self.model.device))
 
         # PATH A: Keyword-based (heading-boosted) - already operates on raw text
@@ -754,8 +756,8 @@ class LexiCacheModel:
         if len(self.support_embeddings) > 0:
             support_emb = torch.stack(self.support_embeddings).to(self.model.device)
             dists = torch.cdist(proj, support_emb)
-            pred_idx = dists.argmin().item()
-            min_dist = dists[0, pred_idx].item()
+            pred_idx = int(dists.argmin().item())
+            min_dist = float(dists[0, pred_idx].item())
             model_conf = max(0.0, min(0.95, 1.0 - (min_dist / self.model_distance_scale)))
             model_type = self.support_labels[pred_idx]
 
@@ -972,7 +974,7 @@ class LexiCacheModel:
             type_key = classification['clause_type']
 
             exact_slice = contract_text[seg['start_idx']:seg['end_idx']]
-            span_text = self._normalize_span_text(exact_slice, max_chars=500)
+            span_text = self._normalize_span_text(exact_slice, max_chars=5000)
 
             results.append({
                 'clause_type': type_key,
@@ -1004,7 +1006,7 @@ class LexiCacheModel:
             exact_end = int(r.get('end_idx', exact_start) or exact_start)
             exact_start = max(0, min(exact_start, len(contract_text)))
             exact_end = max(exact_start, min(exact_end, len(contract_text)))
-            exact_text = self._normalize_span_text(contract_text[exact_start:exact_end], max_chars=500)
+            exact_text = self._normalize_span_text(contract_text[exact_start:exact_end], max_chars=5000)
             disp_start, disp_end, disp_text = self._expand_display_span(contract_text, exact_start, exact_end)
 
             r['span_exact'] = exact_text
