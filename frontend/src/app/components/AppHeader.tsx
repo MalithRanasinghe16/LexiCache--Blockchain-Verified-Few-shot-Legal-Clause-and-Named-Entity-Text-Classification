@@ -10,7 +10,8 @@ export default function AppHeader() {
             LexiCache
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-(--muted) lg:text-base">
-            Review, teach, and verify legal clauses in a document-first interface.
+            Review, teach, and verify legal clauses in a document-first
+            interface.
           </p>
         </div>
 

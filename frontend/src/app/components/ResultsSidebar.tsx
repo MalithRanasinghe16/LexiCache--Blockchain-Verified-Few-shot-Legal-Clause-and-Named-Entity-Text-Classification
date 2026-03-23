@@ -113,7 +113,9 @@ export default function ResultsSidebar({
               </button>
             </div>
             {verification && (
-              <p className="mt-2 text-xs text-[#855526]">{verification.message}</p>
+              <p className="mt-2 text-xs text-[#855526]">
+                {verification.message}
+              </p>
             )}
           </section>
         )}

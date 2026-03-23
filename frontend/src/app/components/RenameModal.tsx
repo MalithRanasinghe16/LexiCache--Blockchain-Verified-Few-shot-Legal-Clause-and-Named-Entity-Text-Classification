@@ -102,7 +102,7 @@ export default function RenameModal({
               className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold uppercase tracking-wide transition ${
                 !newName.trim() || isRenaming
                   ? "cursor-not-allowed bg-gray-300 text-gray-500"
-                    : "bg-brand text-white hover:bg-[#18413d]"
+                  : "bg-brand text-white hover:bg-[#18413d]"
               }`}
             >
               {isRenaming ? (

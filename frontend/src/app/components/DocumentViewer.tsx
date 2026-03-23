@@ -105,8 +105,8 @@ export default function DocumentViewer({
 
       <div className="px-5 py-6 lg:px-7">
         <div className="mb-4 rounded-xl border border-line bg-paper px-4 py-3 text-sm text-muted">
-          Review highlighted text directly in context. Click a clause in the right
-          panel to jump to its location.
+          Review highlighted text directly in context. Click a clause in the
+          right panel to jump to its location.
         </div>
 
         <div className="rounded-2xl border border-line bg-[#eae3d7] p-3 shadow-inner lg:p-4">
