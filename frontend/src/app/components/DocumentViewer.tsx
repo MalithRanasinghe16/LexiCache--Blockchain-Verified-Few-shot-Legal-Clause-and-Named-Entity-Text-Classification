@@ -1,5 +1,10 @@
 import { Eye, CheckCircle } from "lucide-react";
-import { AnalysisResult, ClauseResult, PageTextContent } from "../types";
+import {
+  AnalysisResult,
+  ClauseResult,
+  PageTextContent,
+  SearchMatch,
+} from "../types";
 import PdfViewer from "./PdfViewer";
 import DocxViewer from "./DocxViewer";
 
@@ -15,7 +20,10 @@ type Props = {
   selectedClauseTypes: Set<string>;
   minConfidence: number;
   highlightedText: string;
+  searchMatches: SearchMatch[];
   activeClause: ClauseResult | null;
+  activeSearchPageIndex: number | null;
+  activeSearchCharOffset: number | null;
   documentText: string;
   isClient: boolean;
   onReset: () => void;
@@ -34,7 +42,10 @@ export default function DocumentViewer({
   selectedClauseTypes,
   minConfidence,
   highlightedText,
+  searchMatches,
   activeClause,
+  activeSearchPageIndex,
+  activeSearchCharOffset,
   documentText,
   isClient,
   onReset,
@@ -99,7 +110,10 @@ export default function DocumentViewer({
             selectedClauseTypes={selectedClauseTypes}
             minConfidence={minConfidence}
             highlightedText={highlightedText}
+            searchMatches={searchMatches}
             activeClause={activeClause}
+            activeSearchPageIndex={activeSearchPageIndex}
+            activeSearchCharOffset={activeSearchCharOffset}
             isClient={isClient}
             onDocumentLoadSuccess={onDocumentLoadSuccess}
           />

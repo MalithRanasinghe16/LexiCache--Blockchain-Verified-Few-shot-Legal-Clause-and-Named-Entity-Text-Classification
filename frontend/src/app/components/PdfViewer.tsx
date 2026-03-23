@@ -7,6 +7,7 @@ import {
   AnalysisResult,
   ClauseResult,
   PageTextContent,
+  SearchMatch,
   TextItem,
 } from "../types";
 
@@ -34,7 +35,10 @@ type Props = {
   selectedClauseTypes: Set<string>;
   minConfidence: number;
   highlightedText: string;
+  searchMatches: SearchMatch[];
   activeClause: ClauseResult | null;
+  activeSearchPageIndex: number | null;
+  activeSearchCharOffset: number | null;
   isClient: boolean;
   onDocumentLoadSuccess: (data: { numPages: number }) => void;
 };
@@ -50,7 +54,10 @@ export default function PdfViewer({
   selectedClauseTypes,
   minConfidence,
   highlightedText,
+  searchMatches,
   activeClause,
+  activeSearchPageIndex,
+  activeSearchCharOffset,
   isClient,
   onDocumentLoadSuccess,
 }: Props) {
@@ -616,18 +623,71 @@ export default function PdfViewer({
     ],
   );
 
+  const getSearchMatchRects = useCallback(
+    (pageContent: PageTextContent, charOffset: number, length: number) => {
+      const { charToItemIdx, allLines, itemToLineIdx } =
+        buildPageIndex(pageContent);
+      const matchedItemIndices = new Set<number>();
+      for (let i = charOffset; i < charOffset + length; i++) {
+        const itemIdx = charToItemIdx[i];
+        if (itemIdx !== undefined) matchedItemIndices.add(itemIdx);
+      }
+      return lineRectsFromItems(
+        matchedItemIndices,
+        pageContent,
+        allLines,
+        itemToLineIdx,
+        false,
+      );
+    },
+    [buildPageIndex, lineRectsFromItems],
+  );
+
+  // ── Helper for exact-position scrolling ──────────────────────────────────────────────
+  const scrollToExactPosition = useCallback(
+    (
+      pageIndex: number,
+      pos: { x: number; y: number; width: number; height: number } | undefined,
+      delayMs = 150,
+    ) => {
+      const pageEl = pageContainerRefs.current[pageIndex];
+      if (!pageEl) return;
+
+      setTimeout(() => {
+        if (pos) {
+          const tempScrollTarget = document.createElement("div");
+          tempScrollTarget.style.position = "absolute";
+          tempScrollTarget.style.left = `${pos.x}px`;
+          tempScrollTarget.style.top = `${pos.y}px`;
+          tempScrollTarget.style.width = `${pos.width}px`;
+          tempScrollTarget.style.height = `${pos.height}px`;
+          tempScrollTarget.style.visibility = "hidden";
+          tempScrollTarget.style.pointerEvents = "none";
+          pageEl.appendChild(tempScrollTarget);
+
+          tempScrollTarget.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+
+          setTimeout(() => {
+            if (pageEl.contains(tempScrollTarget)) {
+              pageEl.removeChild(tempScrollTarget);
+            }
+          }, 1000);
+        } else {
+          pageEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, delayMs);
+    },
+    [],
+  );
+
   // ── Auto-scroll to the page containing the active clause ───────────────
   useEffect(() => {
     if (!activeClause || pageTextContents.length === 0) {
-      console.log("PDF Scroll: Skipping (no active clause or page content)");
       return;
     }
-
-    console.log("PDF Scroll: Looking for active clause on pages...", {
-      clause: activeClause.span.substring(0, 50) + "...",
-      numPages: pageTextContents.length,
-      pageNumber: activeClause.page_number,
-    });
 
     if (
       typeof activeClause.page_number === "number" &&
@@ -641,15 +701,7 @@ export default function PdfViewer({
         targetIndex + 1,
       );
       if (mappedPositions.length > 0) {
-        setTimeout(() => {
-          pageContainerRefs.current[targetIndex]?.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
-          console.log(
-            `Scrolled to backend-mapped page ${activeClause.page_number}`,
-          );
-        }, 350);
+        scrollToExactPosition(targetIndex, mappedPositions[0], 250);
         return;
       }
     }
@@ -662,22 +714,43 @@ export default function PdfViewer({
         i + 1,
       );
       if (positions.length > 0) {
-        console.log(
-          `Found clause on page ${i + 1}, scrolling to it...`,
-          positions,
-        );
-        // Delay slightly so canvas highlights are drawn first
-        setTimeout(() => {
-          pageContainerRefs.current[i]?.scrollIntoView({
-            behavior: "smooth",
-            block: "center",
-          });
-          console.log(`Scrolled to page ${i + 1}`);
-        }, 350);
+        scrollToExactPosition(i, positions[0], 250);
         break;
       }
     }
-  }, [activeClause, pageTextContents, findClausePositions]);
+  }, [
+    activeClause,
+    pageTextContents,
+    findClausePositions,
+    scrollToExactPosition,
+  ]);
+
+  // ── Auto-scroll to the exact position of the active search match ───────
+  useEffect(() => {
+    if (activeSearchPageIndex !== null && activeSearchCharOffset !== null) {
+      const pageContent = pageTextContents[activeSearchPageIndex];
+      if (!pageContent) return;
+
+      const positions = getSearchMatchRects(
+        pageContent,
+        activeSearchCharOffset,
+        highlightedText.length,
+      );
+
+      if (positions.length > 0) {
+        scrollToExactPosition(activeSearchPageIndex, positions[0], 100);
+      } else {
+        scrollToExactPosition(activeSearchPageIndex, undefined, 100);
+      }
+    }
+  }, [
+    activeSearchPageIndex,
+    activeSearchCharOffset,
+    pageTextContents,
+    getSearchMatchRects,
+    highlightedText.length,
+    scrollToExactPosition,
+  ]);
 
   // ── Draw clause + active + search highlights on canvas ────────────────
   const drawHighlights = useCallback(() => {
@@ -748,24 +821,56 @@ export default function PdfViewer({
           });
         }
 
-        // Pass 3: Search highlight (if from search bar, not clause click)
-        if (
-          highlightedText &&
-          (!activeClause ||
-            highlightedText !==
-              (activeClause.span_display || activeClause.span))
-        ) {
-          const positions = findTextPositions(
-            highlightedText,
-            pageContent,
-            true,
+        // Pass 3: Draw search results
+        if (highlightedText && searchMatches.length > 0) {
+          const pageMatches = searchMatches.filter(
+            (m) => m.pageIndex === pageIndex,
           );
-          positions.forEach((pos) => {
-            ctx.fillStyle = "rgba(251, 191, 36, 0.4)";
-            ctx.fillRect(pos.x - 1, pos.y - 1, pos.width + 2, pos.height + 2);
-            ctx.strokeStyle = "#f59e0b";
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(pos.x - 1, pos.y - 1, pos.width + 2, pos.height + 2);
+          pageMatches.forEach((match) => {
+            const positions = getSearchMatchRects(
+              pageContent,
+              match.charOffset,
+              highlightedText.length,
+            );
+            const isActive =
+              activeSearchPageIndex === pageIndex &&
+              activeSearchCharOffset === match.charOffset;
+
+            positions.forEach((pos) => {
+              if (isActive) {
+                ctx.fillStyle = "rgba(255, 152, 0, 0.6)"; // Stronger orange
+                ctx.fillRect(
+                  pos.x - 1,
+                  pos.y - 1,
+                  pos.width + 2,
+                  pos.height + 2,
+                );
+                ctx.strokeStyle = "#ea580c"; // Tailwind orange-600
+                ctx.lineWidth = 2;
+                ctx.strokeRect(
+                  pos.x - 1,
+                  pos.y - 1,
+                  pos.width + 2,
+                  pos.height + 2,
+                );
+              } else {
+                ctx.fillStyle = "rgba(251, 191, 36, 0.4)"; // Yellow
+                ctx.fillRect(
+                  pos.x - 1,
+                  pos.y - 1,
+                  pos.width + 2,
+                  pos.height + 2,
+                );
+                ctx.strokeStyle = "#f59e0b";
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(
+                  pos.x - 1,
+                  pos.y - 1,
+                  pos.width + 2,
+                  pos.height + 2,
+                );
+              }
+            });
           });
         }
       });
@@ -776,15 +881,18 @@ export default function PdfViewer({
     pageTextContents,
     pageWidth,
     pageHeights,
-    findTextPositions,
     highlightedText,
+    searchMatches,
     activeClause,
+    activeSearchPageIndex,
+    activeSearchCharOffset,
     selectedClauseTypes,
     minConfidence,
     colorWithOpacity,
     findClausePositions,
     clauseIntersectsPage,
     isSameClause,
+    getSearchMatchRects,
   ]);
 
   useEffect(() => {

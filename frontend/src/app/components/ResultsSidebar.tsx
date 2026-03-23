@@ -11,7 +11,8 @@ type Props = {
   selectedClauseTypes: Set<string>;
   minConfidence: number;
   searchTerm: string;
-  highlightedText: string;
+  totalSearchMatches: number;
+  currentSearchMatchIndex: number;
   showFilters: boolean;
   activeClause: ClauseResult | null;
   verification: VerificationState | null;
@@ -30,7 +31,9 @@ type Props = {
   onColorChange: (type: string, color: string) => void;
   onRegenerateColors: () => void;
   onSearchChange: (val: string) => void;
-  onSearch: () => void;
+  onSearchNext: () => void;
+  onSearchPrev: () => void;
+  onSearchClear: () => void;
 };
 
 export default function ResultsSidebar({
@@ -39,7 +42,8 @@ export default function ResultsSidebar({
   selectedClauseTypes,
   minConfidence,
   searchTerm,
-  highlightedText,
+  totalSearchMatches,
+  currentSearchMatchIndex,
   showFilters,
   activeClause,
   verification,
@@ -58,7 +62,9 @@ export default function ResultsSidebar({
   onColorChange,
   onRegenerateColors,
   onSearchChange,
-  onSearch,
+  onSearchNext,
+  onSearchPrev,
+  onSearchClear,
 }: Props) {
   const allClauses = result.result ?? [];
 
@@ -213,9 +219,12 @@ export default function ResultsSidebar({
       {/* Search Bar */}
       <SearchBar
         searchTerm={searchTerm}
-        highlightedText={highlightedText}
+        totalMatches={totalSearchMatches}
+        currentMatchIndex={currentSearchMatchIndex}
         onChange={onSearchChange}
-        onSearch={onSearch}
+        onNext={onSearchNext}
+        onPrev={onSearchPrev}
+        onClear={onSearchClear}
       />
     </div>
   );

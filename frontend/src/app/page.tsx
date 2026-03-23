@@ -5,6 +5,7 @@ import {
   AnalysisResult,
   ClauseResult,
   PageTextContent,
+  SearchMatch,
   VerificationAttempt,
   VerificationState,
 } from "./types";
@@ -53,6 +54,16 @@ export default function Home() {
   const [highlightedText, setHighlightedText] = useState("");
   // Active clause: tracks which clause was clicked → drives PDF scroll + highlight
   const [activeClause, setActiveClause] = useState<ClauseResult | null>(null);
+
+  // ── Search match state ──────────────────────────────────────────────────
+  const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
+  const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(0);
+  const [activeSearchPageIndex, setActiveSearchPageIndex] = useState<
+    number | null
+  >(null);
+  const [activeSearchCharOffset, setActiveSearchCharOffset] = useState<
+    number | null
+  >(null);
 
   // ── Color map ──────────────────────────────────────────────────────────
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
@@ -328,9 +339,108 @@ export default function Home() {
     setColorMap(newColorMap);
   };
 
-  const handleSearch = () => {
-    if (searchTerm.trim()) setHighlightedText(searchTerm);
-  };
+  // ── Live search: scan pages for matches whenever searchTerm changes ────
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (!term || pageTextContents.length === 0) {
+      setSearchMatches([]);
+      setCurrentSearchMatchIndex(0);
+      setHighlightedText("");
+      setActiveSearchPageIndex(null);
+      setActiveSearchCharOffset(null);
+      return;
+    }
+
+    // Normalize the search term
+    const normalizedTerm = term
+      .toLowerCase()
+      .replace(/[^\w\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!normalizedTerm) {
+      setSearchMatches([]);
+      setCurrentSearchMatchIndex(0);
+      setHighlightedText("");
+      return;
+    }
+
+    const matches: SearchMatch[] = [];
+
+    pageTextContents.forEach((pageContent, pageIndex) => {
+      // Build normalized page text
+      let pageText = "";
+      pageContent.items.forEach((item, itemIdx) => {
+        const normalizedItem = item.str
+          .toLowerCase()
+          .replace(/[^\w\s]/g, " ")
+          .replace(/\s+/g, " ");
+        pageText += normalizedItem;
+        if (itemIdx < pageContent.items.length - 1) {
+          pageText += " ";
+        }
+      });
+
+      // Find all occurrences of the search term in this page
+      let startPos = 0;
+      let matchIndexInPage = 0;
+      while (true) {
+        const idx = pageText.indexOf(normalizedTerm, startPos);
+        if (idx === -1) break;
+        matches.push({
+          pageIndex,
+          matchIndex: matchIndexInPage,
+          charOffset: idx,
+        });
+        matchIndexInPage++;
+        startPos = idx + 1; // move past to find next occurrence
+      }
+    });
+
+    setSearchMatches(matches);
+    setHighlightedText(term);
+
+    // Reset to first match
+    if (matches.length > 0) {
+      setCurrentSearchMatchIndex(0);
+      setActiveSearchPageIndex(matches[0].pageIndex);
+      setActiveSearchCharOffset(matches[0].charOffset);
+    } else {
+      setCurrentSearchMatchIndex(0);
+      setActiveSearchPageIndex(null);
+      setActiveSearchCharOffset(null);
+    }
+  }, [searchTerm, pageTextContents]);
+
+  const handleSearchNext = useCallback(() => {
+    if (searchMatches.length === 0) return;
+    const nextIdx = (currentSearchMatchIndex + 1) % searchMatches.length;
+    setCurrentSearchMatchIndex(nextIdx);
+    setActiveSearchPageIndex(searchMatches[nextIdx].pageIndex);
+    setActiveSearchCharOffset(searchMatches[nextIdx].charOffset);
+    setActiveClause(null); // clear clause highlight when navigating search
+  }, [searchMatches, currentSearchMatchIndex]);
+
+  const handleSearchPrev = useCallback(() => {
+    if (searchMatches.length === 0) return;
+    const prevIdx =
+      currentSearchMatchIndex === 0
+        ? searchMatches.length - 1
+        : currentSearchMatchIndex - 1;
+    setCurrentSearchMatchIndex(prevIdx);
+    setActiveSearchPageIndex(searchMatches[prevIdx].pageIndex);
+    setActiveSearchCharOffset(searchMatches[prevIdx].charOffset);
+    setActiveClause(null); // clear clause highlight when navigating search
+  }, [searchMatches, currentSearchMatchIndex]);
+
+  const handleSearchClear = useCallback(() => {
+    setSearchTerm("");
+    setHighlightedText("");
+    setSearchMatches([]);
+    setCurrentSearchMatchIndex(0);
+    setActiveSearchPageIndex(null);
+    setActiveSearchCharOffset(null);
+  }, []);
 
   const handleRenameUnknown = async () => {
     if (!selectedUnknownClause || !newClauseTypeName.trim()) return;
@@ -565,7 +675,10 @@ export default function Home() {
               selectedClauseTypes={selectedClauseTypes}
               minConfidence={minConfidence}
               highlightedText={highlightedText}
+              searchMatches={searchMatches}
               activeClause={activeClause}
+              activeSearchPageIndex={activeSearchPageIndex}
+              activeSearchCharOffset={activeSearchCharOffset}
               documentText={documentText}
               isClient={isClient}
               onReset={resetAnalysis}
@@ -577,7 +690,8 @@ export default function Home() {
               selectedClauseTypes={selectedClauseTypes}
               minConfidence={minConfidence}
               searchTerm={searchTerm}
-              highlightedText={highlightedText}
+              totalSearchMatches={searchMatches.length}
+              currentSearchMatchIndex={currentSearchMatchIndex}
               activeClause={activeClause}
               verification={verification}
               history={history}
@@ -596,7 +710,9 @@ export default function Home() {
               onColorChange={handleColorChange}
               onRegenerateColors={handleRegenerateColors}
               onSearchChange={setSearchTerm}
-              onSearch={handleSearch}
+              onSearchNext={handleSearchNext}
+              onSearchPrev={handleSearchPrev}
+              onSearchClear={handleSearchClear}
             />
           </div>
         )}
