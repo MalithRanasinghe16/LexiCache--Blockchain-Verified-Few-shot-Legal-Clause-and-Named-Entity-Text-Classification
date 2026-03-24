@@ -564,23 +564,15 @@ export default function Home() {
       sendDiscard();
     };
 
-    const handleBeforeUnload = () => {
-      // Fire discard in addition to browser's native leave confirmation.
-      // This runs on actual close/refresh navigation acceptance.
-      sendDiscard();
-    };
-
     const handleOffline = () => {
       // Explicitly treat connection loss as a discard trigger.
       sendDiscard();
     };
 
     window.addEventListener("pagehide", handlePageHide);
-    window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("offline", handleOffline);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("offline", handleOffline);
     };
   }, [result, docHash, verification?.show_verify_button, userId]);
