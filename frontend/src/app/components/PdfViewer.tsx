@@ -10,6 +10,7 @@ import {
   SearchMatch,
   TextItem,
 } from "../types";
+import { isStructuralClause } from "../utils/clauseText";
 
 const Document = dynamic(
   () => import("react-pdf").then((mod) => mod.Document),
@@ -100,25 +101,8 @@ export default function PdfViewer({
   const getClauseSearchText = useCallback(
     (clause: ClauseResult): string => {
       const sourceText = result?.extracted_text;
-      const dispStart = clause.display_start_idx;
-      const dispEnd = clause.display_end_idx;
       const start = clause.start_idx;
       const end = clause.end_idx;
-
-      if (
-        typeof sourceText === "string" &&
-        Number.isInteger(dispStart) &&
-        Number.isInteger(dispEnd) &&
-        (dispStart as number) >= 0 &&
-        (dispEnd as number) > (dispStart as number) &&
-        (dispEnd as number) <= sourceText.length
-      ) {
-        const displaySlice = sourceText.slice(
-          dispStart as number,
-          dispEnd as number,
-        );
-        return displaySlice.replace(/\s+/g, " ").trim().slice(0, 320);
-      }
 
       if (
         typeof sourceText === "string" &&
@@ -132,22 +116,22 @@ export default function PdfViewer({
         return exactSlice.replace(/\s+/g, " ").trim().slice(0, 260);
       }
 
-      return clause.span_display || clause.span_exact || clause.span;
+      return clause.span_exact || clause.span_display || clause.span;
     },
     [result],
   );
 
   const getClauseRange = useCallback(
     (clause: ClauseResult): { start: number; end: number } | null => {
-      const s = Number.isInteger(clause.display_start_idx)
-        ? (clause.display_start_idx as number)
-        : Number.isInteger(clause.start_idx)
-          ? (clause.start_idx as number)
+      const s = Number.isInteger(clause.start_idx)
+        ? (clause.start_idx as number)
+        : Number.isInteger(clause.display_start_idx)
+          ? (clause.display_start_idx as number)
           : null;
-      const e = Number.isInteger(clause.display_end_idx)
-        ? (clause.display_end_idx as number)
-        : Number.isInteger(clause.end_idx)
-          ? (clause.end_idx as number)
+      const e = Number.isInteger(clause.end_idx)
+        ? (clause.end_idx as number)
+        : Number.isInteger(clause.display_end_idx)
+          ? (clause.display_end_idx as number)
           : null;
 
       if (s === null || e === null) return null;
@@ -208,11 +192,11 @@ export default function PdfViewer({
 
       if (
         typeof sourceText === "string" &&
-        Number.isInteger(clause.display_start_idx) &&
-        Number.isInteger(clause.display_end_idx)
+        Number.isInteger(clause.start_idx) &&
+        Number.isInteger(clause.end_idx)
       ) {
-        const ds = clause.display_start_idx as number;
-        const de = clause.display_end_idx as number;
+        const ds = clause.start_idx as number;
+        const de = clause.end_idx as number;
         if (ds >= 0 && de > ds && de <= sourceText.length) {
           candidates.push(
             sourceText.slice(ds, de).replace(/\s+/g, " ").trim().slice(0, 320),
@@ -234,8 +218,8 @@ export default function PdfViewer({
         }
       }
 
-      candidates.push(clause.span_display || "");
       candidates.push(clause.span_exact || "");
+      candidates.push(clause.span_display || "");
       candidates.push(clause.span || "");
 
       const unique: string[] = [];
@@ -775,6 +759,7 @@ export default function PdfViewer({
 
         // Pass 1: Draw all regular clause highlights (coloured, 30% opacity)
         result.result.forEach((clause: ClauseResult) => {
+          if (isStructuralClause(clause)) return;
           if (!clauseIntersectsPage(clause, pageIndex + 1)) return;
           if (!selectedClauseTypes.has(clause.clause_type)) return;
           if (
@@ -804,7 +789,7 @@ export default function PdfViewer({
         });
 
         // Pass 2: Draw the ACTIVE (selected) clause with a strong yellow highlight
-        if (activeClause) {
+        if (activeClause && !isStructuralClause(activeClause)) {
           const positions = findClausePositions(
             activeClause,
             pageContent,

@@ -287,7 +287,7 @@ export default function Home() {
   };
 
   const handleClauseClick = (clause: ClauseResult) => {
-    const displaySpan = clause.span_display || clause.span;
+    const displaySpan = clause.span_exact || clause.span_display || clause.span;
     console.log("Clause clicked:", {
       type: clause.clause_type,
       isUnknown: clause.clause_type === "Unknown clause",

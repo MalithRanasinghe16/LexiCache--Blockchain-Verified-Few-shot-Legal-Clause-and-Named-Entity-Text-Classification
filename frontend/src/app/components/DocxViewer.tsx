@@ -1,6 +1,7 @@
 import { FileText } from "lucide-react";
 import { ClauseResult } from "../types";
 import { useCallback } from "react";
+import { isStructuralClause } from "../utils/clauseText";
 
 type Props = {
   file: File | null;
@@ -45,6 +46,7 @@ export default function DocxViewer({
   const getFilteredClauses = useCallback((): ClauseResult[] => {
     if (!result?.result) return [];
     return result.result.filter((clause) => {
+      if (isStructuralClause(clause)) return false;
       if (clause.clause_type === "Unknown clause")
         return selectedClauseTypes.has(clause.clause_type);
       return (
@@ -75,16 +77,16 @@ export default function DocxViewer({
           : colorMap[clause.clause_type] || "#6b7280";
 
       if (
-        Number.isInteger(clause.display_start_idx) &&
-        Number.isInteger(clause.display_end_idx)
+        Number.isInteger(clause.start_idx) &&
+        Number.isInteger(clause.end_idx)
       ) {
         const start = Math.max(
           0,
-          Math.min(clause.display_start_idx as number, documentText.length),
+          Math.min(clause.start_idx as number, documentText.length),
         );
         const end = Math.max(
           start,
-          Math.min(clause.display_end_idx as number, documentText.length),
+          Math.min(clause.end_idx as number, documentText.length),
         );
         if (end > start) {
           clausePositions.push({
@@ -98,7 +100,8 @@ export default function DocxViewer({
       }
 
       const normalizedDocText = documentText.toLowerCase();
-      const displaySpan = clause.span_display || clause.span;
+      const displaySpan =
+        clause.span_exact || clause.span_display || clause.span;
       const normalizedSpan = displaySpan.toLowerCase();
       const searchLength = Math.min(normalizedSpan.length, 260);
       const searchText = normalizedSpan.substring(0, searchLength);
