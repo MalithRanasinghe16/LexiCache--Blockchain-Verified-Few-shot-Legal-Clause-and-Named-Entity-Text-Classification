@@ -294,23 +294,30 @@ export default function PdfViewer({
     ): {
       pageText: string;
       charToItemIdx: (number | undefined)[];
+      charToItemCharOffset: (number | undefined)[];
+      itemNormalizedLengths: number[];
       allLines: LineInfo[];
       itemToLineIdx: Map<number, number>;
     } => {
       let pageText = "";
       const charToItemIdx: (number | undefined)[] = [];
+      const charToItemCharOffset: (number | undefined)[] = [];
+      const itemNormalizedLengths: number[] = [];
 
       pageContent.items.forEach((item: TextItem, itemIdx: number) => {
         const normalizedItem = item.str
           .toLowerCase()
           .replace(/[^\w\s]/g, " ")
           .replace(/\s+/g, " ");
+        itemNormalizedLengths[itemIdx] = normalizedItem.length;
         for (let i = 0; i < normalizedItem.length; i++) {
           charToItemIdx.push(itemIdx);
+          charToItemCharOffset.push(i);
           pageText += normalizedItem[i];
         }
         if (itemIdx < pageContent.items.length - 1) {
           charToItemIdx.push(itemIdx);
+          charToItemCharOffset.push(normalizedItem.length);
           pageText += " ";
         }
       });
@@ -367,7 +374,14 @@ export default function PdfViewer({
           itemToLineIdx.set(current.idx, lineIndex);
         });
 
-      return { pageText, charToItemIdx, allLines, itemToLineIdx };
+      return {
+        pageText,
+        charToItemIdx,
+        charToItemCharOffset,
+        itemNormalizedLengths,
+        allLines,
+        itemToLineIdx,
+      };
     },
     [],
   );
@@ -609,22 +623,110 @@ export default function PdfViewer({
 
   const getSearchMatchRects = useCallback(
     (pageContent: PageTextContent, charOffset: number, length: number) => {
-      const { charToItemIdx, allLines, itemToLineIdx } =
-        buildPageIndex(pageContent);
-      const matchedItemIndices = new Set<number>();
+      const {
+        charToItemIdx,
+        charToItemCharOffset,
+        itemNormalizedLengths,
+        itemToLineIdx,
+      } = buildPageIndex(pageContent);
+
+      const itemCharRanges = new Map<number, { min: number; max: number }>();
       for (let i = charOffset; i < charOffset + length; i++) {
         const itemIdx = charToItemIdx[i];
-        if (itemIdx !== undefined) matchedItemIndices.add(itemIdx);
+        const itemCharOffset = charToItemCharOffset[i];
+        if (itemIdx === undefined || itemCharOffset === undefined) continue;
+
+        const normalizedLen = Math.max(1, itemNormalizedLengths[itemIdx] ?? 1);
+        const clamped = Math.max(0, Math.min(itemCharOffset, normalizedLen));
+        const existing = itemCharRanges.get(itemIdx);
+        if (!existing) {
+          itemCharRanges.set(itemIdx, { min: clamped, max: clamped + 1 });
+        } else {
+          existing.min = Math.min(existing.min, clamped);
+          existing.max = Math.max(existing.max, clamped + 1);
+        }
       }
-      return lineRectsFromItems(
-        matchedItemIndices,
-        pageContent,
-        allLines,
-        itemToLineIdx,
-        false,
-      );
+
+      const rects: Array<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        lineIdx: number;
+      }> = [];
+
+      itemCharRanges.forEach((range, itemIdx) => {
+        const item = pageContent.items[itemIdx];
+        if (!item || item.width <= 0 || item.height <= 0) return;
+
+        const itemX = item.transform[4];
+        const itemY =
+          pageContent.viewport.height - item.transform[5] - item.height;
+        if (
+          !Number.isFinite(itemX) ||
+          !Number.isFinite(itemY) ||
+          itemX < 0 ||
+          itemY < 0
+        ) {
+          return;
+        }
+
+        const normalizedLen = Math.max(1, itemNormalizedLengths[itemIdx] ?? 1);
+        const charWidth = item.width / normalizedLen;
+        const start = Math.max(0, Math.min(range.min, normalizedLen));
+        const end = Math.max(start + 1, Math.min(range.max, normalizedLen));
+
+        rects.push({
+          x: itemX + start * charWidth,
+          y: itemY,
+          width: Math.max(2, (end - start) * charWidth),
+          height: Math.max(item.height, 12),
+          lineIdx: itemToLineIdx.get(itemIdx) ?? -1,
+        });
+      });
+
+      if (rects.length === 0) return [];
+
+      rects.sort((a, b) => a.lineIdx - b.lineIdx || a.x - b.x);
+
+      const merged: { x: number; y: number; width: number; height: number }[] =
+        [];
+      const mergeGapPx = 3;
+
+      let previousLineIdx: number | null = null;
+      rects.forEach((rect) => {
+        const last = merged[merged.length - 1];
+        const sameLine =
+          last !== undefined &&
+          Math.abs(last.y - rect.y) <= LINE_GROUP_TOLERANCE &&
+          previousLineIdx !== null &&
+          rect.lineIdx === previousLineIdx;
+
+        if (sameLine && rect.x <= last.x + last.width + mergeGapPx) {
+          const right = Math.max(last.x + last.width, rect.x + rect.width);
+          last.y = Math.min(last.y, rect.y);
+          last.height = Math.max(last.height, rect.height);
+          last.width = right - last.x;
+        } else {
+          merged.push({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          });
+        }
+
+        previousLineIdx = rect.lineIdx;
+      });
+
+      return merged.map((r) => ({
+        x: Math.max(0, r.x - 1),
+        y: Math.max(0, r.y),
+        width: Math.min(r.width + 2, pageWidth - r.x),
+        height: Math.max(r.height, 12),
+      }));
     },
-    [buildPageIndex, lineRectsFromItems],
+    [buildPageIndex, pageWidth],
   );
 
   // ── Helper for exact-position scrolling ──────────────────────────────────────────────
@@ -715,10 +817,17 @@ export default function PdfViewer({
       const pageContent = pageTextContents[activeSearchPageIndex];
       if (!pageContent) return;
 
+      const activeMatch = searchMatches.find(
+        (m) =>
+          m.pageIndex === activeSearchPageIndex &&
+          m.charOffset === activeSearchCharOffset,
+      );
+      const activeMatchLength = activeMatch?.length ?? highlightedText.length;
+
       const positions = getSearchMatchRects(
         pageContent,
         activeSearchCharOffset,
-        highlightedText.length,
+        activeMatchLength,
       );
 
       if (positions.length > 0) {
@@ -731,6 +840,7 @@ export default function PdfViewer({
     activeSearchPageIndex,
     activeSearchCharOffset,
     pageTextContents,
+    searchMatches,
     getSearchMatchRects,
     highlightedText.length,
     scrollToExactPosition,
@@ -739,6 +849,9 @@ export default function PdfViewer({
   // ── Draw clause + active + search highlights on canvas ────────────────
   const drawHighlights = useCallback(() => {
     if (!result?.result || pageTextContents.length === 0) return;
+
+    const hasActiveSearch =
+      highlightedText.trim().length > 0 && searchMatches.length > 0;
 
     console.log("Drawing highlights...", {
       totalClauses: result.result.length,
@@ -757,53 +870,62 @@ export default function PdfViewer({
         canvas.height = pageHeights[pageIndex] || 1100;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Pass 1: Draw all regular clause highlights (coloured, 30% opacity)
-        result.result.forEach((clause: ClauseResult) => {
-          if (isStructuralClause(clause)) return;
-          if (!clauseIntersectsPage(clause, pageIndex + 1)) return;
-          if (!selectedClauseTypes.has(clause.clause_type)) return;
-          if (
-            clause.clause_type !== "Unknown clause" &&
-            clause.confidence < minConfidence / 100
-          )
-            return;
-          // Skip active clause — drawn separately below with stronger style
-          if (activeClause && isSameClause(clause, activeClause)) return;
+        // Pass 1/2: Draw clause overlays only when search mode is inactive
+        if (!hasActiveSearch) {
+          result.result.forEach((clause: ClauseResult) => {
+            if (isStructuralClause(clause)) return;
+            if (!clauseIntersectsPage(clause, pageIndex + 1)) return;
+            if (!selectedClauseTypes.has(clause.clause_type)) return;
+            if (
+              clause.clause_type !== "Unknown clause" &&
+              clause.confidence < minConfidence / 100
+            )
+              return;
+            // Skip active clause — drawn separately below with stronger style
+            if (activeClause && isSameClause(clause, activeClause)) return;
 
-          const color =
-            clause.clause_type === "Unknown clause"
-              ? "#F97316"
-              : colorMap[clause.clause_type] || "#6b7280";
-          const positions = findClausePositions(
-            clause,
-            pageContent,
-            pageIndex + 1,
-          );
-          positions.forEach((pos) => {
-            ctx.fillStyle = colorWithOpacity(color, 0.3);
-            ctx.fillRect(pos.x, pos.y, pos.width, pos.height);
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 1;
-            ctx.strokeRect(pos.x, pos.y, pos.width, pos.height);
+            const color =
+              clause.clause_type === "Unknown clause"
+                ? "#F97316"
+                : colorMap[clause.clause_type] || "#6b7280";
+            const positions = findClausePositions(
+              clause,
+              pageContent,
+              pageIndex + 1,
+            );
+            positions.forEach((pos) => {
+              ctx.fillStyle = colorWithOpacity(color, 0.3);
+              ctx.fillRect(pos.x, pos.y, pos.width, pos.height);
+              ctx.strokeStyle = color;
+              ctx.lineWidth = 1;
+              ctx.strokeRect(pos.x, pos.y, pos.width, pos.height);
+            });
           });
-        });
 
-        // Pass 2: Draw the ACTIVE (selected) clause with a strong yellow highlight
-        if (activeClause && !isStructuralClause(activeClause)) {
-          const positions = findClausePositions(
-            activeClause,
-            pageContent,
-            pageIndex + 1,
-          );
-          positions.forEach((pos) => {
-            // Bright yellow fill
-            ctx.fillStyle = "rgba(253, 224, 71, 0.65)";
-            ctx.fillRect(pos.x - 2, pos.y - 2, pos.width + 4, pos.height + 4);
-            // Bold amber border
-            ctx.strokeStyle = "#d97706";
-            ctx.lineWidth = 2.5;
-            ctx.strokeRect(pos.x - 2, pos.y - 2, pos.width + 4, pos.height + 4);
-          });
+          if (activeClause && !isStructuralClause(activeClause)) {
+            const positions = findClausePositions(
+              activeClause,
+              pageContent,
+              pageIndex + 1,
+            );
+            positions.forEach((pos) => {
+              ctx.fillStyle = "rgba(253, 224, 71, 0.65)";
+              ctx.fillRect(
+                pos.x - 2,
+                pos.y - 2,
+                pos.width + 4,
+                pos.height + 4,
+              );
+              ctx.strokeStyle = "#d97706";
+              ctx.lineWidth = 2.5;
+              ctx.strokeRect(
+                pos.x - 2,
+                pos.y - 2,
+                pos.width + 4,
+                pos.height + 4,
+              );
+            });
+          }
         }
 
         // Pass 3: Draw search results
@@ -815,7 +937,7 @@ export default function PdfViewer({
             const positions = getSearchMatchRects(
               pageContent,
               match.charOffset,
-              highlightedText.length,
+              match.length,
             );
             const isActive =
               activeSearchPageIndex === pageIndex &&

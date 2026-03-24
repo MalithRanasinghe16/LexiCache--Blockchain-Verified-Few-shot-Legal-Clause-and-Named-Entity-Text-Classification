@@ -391,6 +391,7 @@ export default function Home() {
           pageIndex,
           matchIndex: matchIndexInPage,
           charOffset: idx,
+          length: normalizedTerm.length,
         });
         matchIndexInPage++;
         startPos = idx + 1; // move past to find next occurrence

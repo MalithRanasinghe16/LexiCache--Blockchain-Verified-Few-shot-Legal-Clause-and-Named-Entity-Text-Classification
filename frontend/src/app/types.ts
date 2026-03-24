@@ -77,4 +77,5 @@ export type SearchMatch = {
   pageIndex: number;
   matchIndex: number; // index within the page (for multiple matches per page)
   charOffset: number; // character offset in normalized page text
+  length: number; // normalized length of this match
 };
