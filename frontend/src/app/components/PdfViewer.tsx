@@ -910,12 +910,7 @@ export default function PdfViewer({
             );
             positions.forEach((pos) => {
               ctx.fillStyle = "rgba(253, 224, 71, 0.65)";
-              ctx.fillRect(
-                pos.x - 2,
-                pos.y - 2,
-                pos.width + 4,
-                pos.height + 4,
-              );
+              ctx.fillRect(pos.x - 2, pos.y - 2, pos.width + 4, pos.height + 4);
               ctx.strokeStyle = "#d97706";
               ctx.lineWidth = 2.5;
               ctx.strokeRect(
