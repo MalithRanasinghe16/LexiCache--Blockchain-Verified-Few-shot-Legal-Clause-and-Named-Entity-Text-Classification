@@ -570,20 +570,18 @@ export default function Home() {
       sendDiscard();
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        // Extra mobile/browser compatibility path for tab close/background.
-        sendDiscard();
-      }
+    const handleOffline = () => {
+      // Explicitly treat connection loss as a discard trigger.
+      sendDiscard();
     };
 
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handleBeforeUnload);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("offline", handleOffline);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("offline", handleOffline);
     };
   }, [result, docHash, verification?.show_verify_button, userId]);
 
