@@ -19,8 +19,14 @@ class PrototypicalNetwork(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_name)
         self.hidden_size = self.encoder.config.hidden_size
 
-    def forward(self, texts: List[str], batch_size: int = 16) -> torch.Tensor:
-        """Encode texts in batches and return mean-pooled embeddings."""
+    def forward(self, texts: List[str], batch_size: int = 16, enable_grad: bool = False) -> torch.Tensor:
+        """Encode texts in batches and return mean-pooled embeddings.
+
+        Args:
+            texts: Input strings.
+            batch_size: Batch size for tokenization/encoding.
+            enable_grad: When True, keeps encoder graph for finetuning.
+        """
         if not texts:
             return torch.empty(0, self.hidden_size, device=self.device)
 
@@ -35,16 +41,22 @@ class PrototypicalNetwork(nn.Module):
                 max_length=512
             )
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            with torch.no_grad():
+            with torch.set_grad_enabled(enable_grad):
                 outputs = self.encoder(**inputs)
             batch_emb = outputs.last_hidden_state.mean(dim=1)  # mean pooling
-            embeddings.append(batch_emb.cpu())  # move to cpu to save VRAM if needed
+            # In inference mode move to CPU to reduce memory; keep on device for training.
+            embeddings.append(batch_emb if enable_grad else batch_emb.cpu())
         return torch.cat(embeddings, dim=0)
 
     def compute_prototypes(self, support_embeds: torch.Tensor, support_labels: torch.Tensor):
         """Compute class prototypes as the mean embedding per class."""
         unique_labels = torch.unique(support_labels)
-        prototypes = torch.zeros(len(unique_labels), self.hidden_size)
+        prototypes = torch.zeros(
+            len(unique_labels),
+            self.hidden_size,
+            device=support_embeds.device,
+            dtype=support_embeds.dtype,
+        )
         for i, lbl in enumerate(unique_labels):
             mask = support_labels == lbl
             if mask.sum() == 0:

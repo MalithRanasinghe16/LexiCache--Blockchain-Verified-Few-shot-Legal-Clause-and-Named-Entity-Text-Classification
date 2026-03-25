@@ -378,7 +378,9 @@ class LexiCacheModel:
                  inclusion_conf_threshold: float = 0.65,
                  context_promote_threshold: float = 0.70,
                  model_distance_scale: float = 1.8,
-                 hybrid_agreement_bonus: float = 0.15):
+                 hybrid_agreement_bonus: float = 0.15,
+                 model_label_agg_topk: int = 3,
+                 model_margin_threshold: float = 0.06):
         t_total = time.time()
         print("[LexiCacheModel] Loading adaptive meta-learning model...")
 
@@ -432,6 +434,8 @@ class LexiCacheModel:
         self.context_promote_threshold: float = float(context_promote_threshold)
         self.model_distance_scale: float = max(0.1, float(model_distance_scale))
         self.hybrid_agreement_bonus: float = max(0.0, float(hybrid_agreement_bonus))
+        self.model_label_agg_topk: int = max(1, int(model_label_agg_topk))
+        self.model_margin_threshold: float = max(0.0, float(model_margin_threshold))
 
         # Persistent knowledge base
         self.learned_types: Dict[str, Dict[str, Any]] = {}
@@ -457,7 +461,11 @@ class LexiCacheModel:
         print(f"  Support set size: {len(self.support_embeddings)} examples")
         print(f"  Known CUAD types: {len(CLAUSE_KEYWORDS_WEIGHTED)}")
         print(f"  Learned custom types: {len(self.learned_types)}")
-        print(f"  Inference config: kw={self.kw_weight:.2f}, model={self.model_weight:.2f}, include>={self.inclusion_conf_threshold:.2f}")
+        print(
+            "  Inference config: "
+            f"kw={self.kw_weight:.2f}, model={self.model_weight:.2f}, include>={self.inclusion_conf_threshold:.2f}, "
+            f"topk={self.model_label_agg_topk}, margin>={self.model_margin_threshold:.3f}"
+        )
 
     # Segmentation
 
@@ -729,6 +737,44 @@ class LexiCacheModel:
 
     # Hybrid ensemble classification
 
+    def _classify_by_model_similarity(self, proj: torch.Tensor) -> Tuple[Optional[str], float, float]:
+        """Classify by support-set similarity using per-label aggregated distances.
+
+        Returns:
+            (best_label, confidence, top2_margin)
+        """
+        if len(self.support_embeddings) == 0:
+            return None, 0.0, 0.0
+
+        support_emb = torch.stack(self.support_embeddings).to(self.model.device)
+        dists = torch.cdist(proj, support_emb)[0]  # [num_support]
+
+        label_to_dists: Dict[str, List[float]] = defaultdict(list)
+        for idx, label in enumerate(self.support_labels):
+            label_to_dists[label].append(float(dists[idx].item()))
+
+        # Aggregate each label by mean of its top-k nearest examples.
+        agg: Dict[str, float] = {}
+        for label, dist_list in label_to_dists.items():
+            nearest = sorted(dist_list)[: self.model_label_agg_topk]
+            agg[label] = float(np.mean(nearest))
+
+        ranked = sorted(agg.items(), key=lambda kv: kv[1])
+        if not ranked:
+            return None, 0.0, 0.0
+
+        best_label, best_dist = ranked[0]
+        second_dist = ranked[1][1] if len(ranked) > 1 else best_dist
+        margin = max(0.0, second_dist - best_dist)
+
+        conf = max(0.0, min(0.95, 1.0 - (best_dist / self.model_distance_scale)))
+
+        # Penalize ambiguous model decisions with very small top-2 margin.
+        if len(ranked) > 1 and margin < self.model_margin_threshold:
+            conf *= 0.75
+
+        return best_label, conf, margin
+
     def _classify_segment(self, segment_text: str, context_heading: str = '') -> Dict:
         """
         Hybrid ensemble classification using raw text (no normalization).
@@ -760,14 +806,7 @@ class LexiCacheModel:
         kw_type, kw_conf = self._classify_by_keywords(segment_text, context_heading)
 
         # PATH B: Model-based few-shot (prototype distance)
-        model_type, model_conf = None, 0.0
-        if len(self.support_embeddings) > 0:
-            support_emb = torch.stack(self.support_embeddings).to(self.model.device)
-            dists = torch.cdist(proj, support_emb)
-            pred_idx = int(dists.argmin().item())
-            min_dist = float(dists[0, pred_idx].item())
-            model_conf = max(0.0, min(0.95, 1.0 - (min_dist / self.model_distance_scale)))
-            model_type = self.support_labels[pred_idx]
+        model_type, model_conf, model_margin = self._classify_by_model_similarity(proj)
 
         # Blended scoring (used for type selection only, not inclusion decision)
         candidates: Dict[str, float] = {}
@@ -808,6 +847,7 @@ class LexiCacheModel:
             'kw_conf': round(kw_conf, 4) if kw_conf else 0.0,
             'model_type': model_type,
             'model_conf': round(model_conf, 4) if model_conf else 0.0,
+            'model_margin': round(model_margin, 4) if model_margin else 0.0,
         }
 
         if best_raw_conf >= self.inclusion_conf_threshold:

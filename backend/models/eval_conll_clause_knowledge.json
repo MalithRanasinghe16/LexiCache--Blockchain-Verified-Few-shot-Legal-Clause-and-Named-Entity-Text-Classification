@@ -1,0 +1,98 @@
+{
+  "learned_types": {
+    "B-LOC": {
+      "examples": [
+        "SOCCER - JAPAN GET LUCKY WIN , CHINA IN SURPRISE DEFEAT ."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:08.447600"
+    },
+    "I-LOC": {
+      "examples": [
+        "AL-AIN , United Arab Emirates 1996-12-06"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:08.709679"
+    },
+    "B-MISC": {
+      "examples": [
+        "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:09.173122"
+    },
+    "B-PER": {
+      "examples": [
+        "China controlled most of the match and saw several chances missed until the 78th minute when Uzbek striker Igor Shkvyrin took advantage of a misdirected defensive header to lob the ball over the advan"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:09.809088"
+    },
+    "I-PER": {
+      "examples": [
+        "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:10.095174"
+    },
+    "I-MISC": {
+      "examples": [
+        "The former Soviet republic was playing in an Asian Cup finals tie for the first time ."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:10.690157"
+    },
+    "B-ORG": {
+      "examples": [
+        "Japan , co-hosts of the World Cup in 2002 and ranked 20th in the world by FIFA , are favourites to regain their title here ."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:11.172784"
+    },
+    "I-ORG": {
+      "examples": [
+        "RUGBY UNION - CUTTITTA BACK FOR ITALY AFTER A YEAR ."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T11:11:11.542804"
+    }
+  },
+  "clause_colors": {},
+  "learned_examples": [
+    {
+      "clause_type": "B-LOC",
+      "text": "SOCCER - JAPAN GET LUCKY WIN , CHINA IN SURPRISE DEFEAT ."
+    },
+    {
+      "clause_type": "I-LOC",
+      "text": "AL-AIN , United Arab Emirates 1996-12-06"
+    },
+    {
+      "clause_type": "B-MISC",
+      "text": "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday ."
+    },
+    {
+      "clause_type": "B-PER",
+      "text": "China controlled most of the match and saw several chances missed until the 78th minute when Uzbek striker Igor Shkvyrin took advantage of a misdirected defensive header to lob the ball over the advancing Chinese keeper and into an empty net ."
+    },
+    {
+      "clause_type": "I-PER",
+      "text": "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area ."
+    },
+    {
+      "clause_type": "I-MISC",
+      "text": "The former Soviet republic was playing in an Asian Cup finals tie for the first time ."
+    },
+    {
+      "clause_type": "B-ORG",
+      "text": "Japan , co-hosts of the World Cup in 2002 and ranked 20th in the world by FIFA , are favourites to regain their title here ."
+    },
+    {
+      "clause_type": "I-ORG",
+      "text": "RUGBY UNION - CUTTITTA BACK FOR ITALY AFTER A YEAR ."
+    }
+  ],
+  "timestamp": "2026-03-25T11:11:11.548400",
+  "total_learned": 8,
+  "total_examples": 8
+}

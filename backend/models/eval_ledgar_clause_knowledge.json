@@ -1,0 +1,98 @@
+{
+  "learned_types": {
+    "Employment": {
+      "examples": [
+        "Executive agrees to be employed with the Company, and the Company agrees to employ Executive, during the Term and on the terms and conditions set forth in this Agreement. Executive agrees during the t"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:28.563250"
+    },
+    "Remedies": {
+      "examples": [
+        "Participant agrees that in the event of a breach or threatened breach of any of the covenants contained in Sections\u00a010 or 11 of this Agreement, in addition to any other penalties or restrictions that "
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:29.512104"
+    },
+    "Interpretations": {
+      "examples": [
+        "For purposes of this Amendment, all terms used herein which are not otherwise defined herein, including but not limited to, those terms used in the recitals hereto, shall have the respective meanings "
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:29.701373"
+    },
+    "Capitalization": {
+      "examples": [
+        "So long as this as this Note is outstanding, upon written request of the Holder, the Company shall furnish to the Holder the then-current number of common shares issued and outstanding, the then-curre"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:29.908544"
+    },
+    "Subsidiaries": {
+      "examples": [
+        "As of the Closing Date, Schedule 5.12 sets forth the name of, and the ownership interest of the Borrower and each of its subsidiaries in, each subsidiary of the Borrower."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:30.070770"
+    },
+    "Compliance With Laws": {
+      "examples": [
+        "Notwithstanding any other provision of this Article IV , each Purchaser covenants that the Shares may be disposed of only pursuant to an effective registration statement under, and in compliance with "
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:30.705253"
+    },
+    "Further Assurances": {
+      "examples": [
+        "Each Party (i)\u00a0hereby agrees to instruct the applicable Parties and TMM Holdings, as applicable, to reflect the foregoing transfers on the books and records thereof and (ii)\u00a0shall execute, deliver, fi"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:30.991878"
+    },
+    "Change In Control": {
+      "examples": [
+        "The Participant will earn the number of Performance Shares equal to Target Shares if there is a Change in Control before January 1, 2021."
+      ],
+      "count": 1,
+      "first_learned": "2026-03-25T12:47:31.141962"
+    }
+  },
+  "clause_colors": {},
+  "learned_examples": [
+    {
+      "clause_type": "Employment",
+      "text": "Executive agrees to be employed with the Company, and the Company agrees to employ Executive, during the Term and on the terms and conditions set forth in this Agreement. Executive agrees during the term of this Agreement to devote substantially all of Executive\u2019s business time, efforts, skills and abilities to the performance of Executive\u2019s duties to the Company and to the furtherance of the Company's business."
+    },
+    {
+      "clause_type": "Remedies",
+      "text": "Participant agrees that in the event of a breach or threatened breach of any of the covenants contained in Sections\u00a010 or 11 of this Agreement, in addition to any other penalties or restrictions that may apply under any employment agreement, state law, or otherwise, Participant shall forfeit, upon written notice to such effect from the Corporation, any and all Awards granted to him or her under the Plan and this Agreement, including vested Awards.\u00a0\u00a0The forfeiture provisions of this Section 13 shall continue to apply, in accordance with their terms, after the provisions of any employment or other agreement between the Corporation and Participant have lapsed.\u00a0\u00a0Participant consents and agrees that if Participant violates or threatens to violate any provisions of Sections\u00a010 or 11 of this Agreement, the Corporation or its successors in interest shall be entitled, in addition to any other remedies that they may have, including money damages, to an injunction to be issued by a court of competent jurisdiction restraining Participant from committing or continuing any violation of Sections 10 or 11.\u00a0\u00a0In the event that Participant is found to have breached any provision set forth in Section 10 of this Agreement, the time period provided for in that provision shall be deemed tolled ( i.e. , it will not begin to run) for as long as Participant was in violation of that provision. The provisions of Sections 10 and 11 of this Agreement shall continue to apply, in accordance with their terms, after the Participant's service has terminated and after provisions of any employment or other agreement between the Corporation and the Participant have lapsed."
+    },
+    {
+      "clause_type": "Interpretations",
+      "text": "For purposes of this Amendment, all terms used herein which are not otherwise defined herein, including but not limited to, those terms used in the recitals hereto, shall have the respective meanings assigned thereto in the Credit Agreement."
+    },
+    {
+      "clause_type": "Capitalization",
+      "text": "So long as this as this Note is outstanding, upon written request of the Holder, the Company shall furnish to the Holder the then-current number of common shares issued and outstanding, the then-current number of common shares authorized, and the then-current number of shares reserved for third parties."
+    },
+    {
+      "clause_type": "Subsidiaries",
+      "text": "As of the Closing Date, Schedule 5.12 sets forth the name of, and the ownership interest of the Borrower and each of its subsidiaries in, each subsidiary of the Borrower."
+    },
+    {
+      "clause_type": "Compliance With Laws",
+      "text": "Notwithstanding any other provision of this Article IV , each Purchaser covenants that the Shares may be disposed of only pursuant to an effective registration statement under, and in compliance with the requirements of, the Securities Act, or pursuant to an available exemption from, or in a transaction not subject to, the registration requirements of the Securities Act, and in compliance with any applicable state and federal securities laws. In connection with any transfer of the Shares other than (i) pursuant to an effective registration statement, (ii) to the Company, (iii) pursuant to Rule 144 ( provided , that such Purchaser provides the Company with reasonable assurances (in the form of seller and, if applicable, broker representation letters) that the securities may be sold pursuant to such rule) or (iv) in connection with a bona fide pledge as contemplated in Section 4.1(b) , the Company may require the transferor thereof to provide to the Company an opinion of counsel selected by the transferor and reasonably acceptable to the Company, the form and substance of which opinion shall be reasonably satisfactory to the Company, to the effect that such transfer does not require registration of such transferred Shares under the Securities Act."
+    },
+    {
+      "clause_type": "Further Assurances",
+      "text": "Each Party (i)\u00a0hereby agrees to instruct the applicable Parties and TMM Holdings, as applicable, to reflect the foregoing transfers on the books and records thereof and (ii)\u00a0shall execute, deliver, file and record, or cause to be executed, delivered, filed and recorded, such further agreements, instruments and other documents, and take, or cause to be taken, such further actions, as any other Party may reasonably request as being necessary or desirable to effect or evidence the transactions contemplated by this Agreement."
+    },
+    {
+      "clause_type": "Change In Control",
+      "text": "The Participant will earn the number of Performance Shares equal to Target Shares if there is a Change in Control before January 1, 2021."
+    }
+  ],
+  "timestamp": "2026-03-25T12:47:31.147118",
+  "total_learned": 8,
+  "total_examples": 8
+}
