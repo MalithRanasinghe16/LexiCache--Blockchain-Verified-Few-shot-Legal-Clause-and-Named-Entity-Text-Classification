@@ -129,17 +129,14 @@ CLAUSE_KEYWORDS_WEIGHTED = {
     ],
 
     # Termination and Renewal
-    'Termination': [
-        ('may terminate', 2), ('notice of termination', 2), ('material breach', 2),
-        ('cure period', 2), ('right to terminate', 2), ('immediately upon termination', 2),
-        ('termination rights', 2), ('agreement shall terminate', 2),
-        ('termination', 1), ('terminate', 1), ('cancellation', 1),
-    ],
-    'Termination for Convenience': [
-        ('terminate for convenience', 2), ('without cause termination', 2),
-        ('at will termination', 2), ('terminate without reason', 2),
-        ('terminate for any reason', 2), ('convenience termination', 2),
-        ('without cause', 1), ('at will', 1),
+    'Termination For Convenience': [
+        ('terminate for convenience', 3), ('without cause termination', 3),
+        ('at will termination', 3), ('terminate without reason', 3),
+        ('terminate for any reason', 3), ('convenience termination', 3),
+        ('may terminate this agreement upon', 2), ('terminate upon written notice', 2),
+        ('right to terminate for any reason', 2), ('terminate without cause', 2),
+        ('may terminate', 1), ('notice of termination', 1), ('right to terminate', 1),
+        ('termination', 1), ('terminate', 1),
     ],
     'Renewal Term': [
         ('automatically renew', 2), ('automatic renewal', 2),
@@ -157,6 +154,7 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('post-termination obligations', 2), ('wind-down services', 2),
         ('transition assistance', 2), ('after termination', 2),
         ('following termination', 2), ('survival of obligations', 2),
+        ('transition period', 2), ('termination assistance', 2),
         ('post-termination', 1), ('wind down', 1), ('transition', 1),
     ],
 
@@ -217,6 +215,49 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('source code license', 2),
         ('license', 1), ('grant', 1), ('right to use', 1), ('licensed', 1),
     ],
+    'Non-Transferable License': [
+        ('non-transferable license', 3), ('not transferable', 3),
+        ('may not sublicense', 3), ('non-sublicensable', 3),
+        ('license is personal', 2), ('license shall not be transferred', 2),
+        ('no right to sublicense', 2), ('non-assignable license', 2),
+        ('not transfer the license', 2), ('personal and non-transferable', 2),
+        ('non-transferable', 1), ('not sublicense', 1),
+    ],
+    'Affiliate License-Licensor': [
+        ('licensor affiliates', 3), ('affiliates of licensor', 3),
+        ('licensor and its affiliates', 2), ('grant to affiliates of licensor', 2),
+        ('licensor affiliate license', 2), ('sublicense to licensor affiliates', 2),
+        ('affiliate of the licensor', 2),
+        ('licensor affiliate', 1), ('affiliate licensor', 1),
+    ],
+    'Affiliate License-Licensee': [
+        ('licensee affiliates', 3), ('affiliates of licensee', 3),
+        ('licensee and its affiliates', 2), ('grant to affiliates of licensee', 2),
+        ('licensee affiliate license', 2), ('sublicense to licensee affiliates', 2),
+        ('affiliate of the licensee', 2),
+        ('licensee affiliate', 1), ('affiliate licensee', 1),
+    ],
+    'Unlimited/All-You-Can-Eat-License': [
+        ('unlimited license', 3), ('all-you-can-eat', 3), ('unlimited use', 3),
+        ('unrestricted license', 3), ('unlimited right to use', 2),
+        ('no restriction on use', 2), ('unlimited copies', 2),
+        ('unlimited users', 2), ('enterprise license', 2),
+        ('unlimited', 1), ('unrestricted', 1),
+    ],
+    'Irrevocable Or Perpetual License': [
+        ('irrevocable license', 3), ('perpetual license', 3),
+        ('irrevocable and perpetual', 3), ('perpetual and irrevocable', 3),
+        ('license shall survive', 2), ('license shall be perpetual', 2),
+        ('irrevocable right', 2), ('perpetual right to use', 2),
+        ('irrevocable', 1), ('perpetual', 1),
+    ],
+    'Source Code Escrow': [
+        ('source code escrow', 3), ('escrow agent', 3),
+        ('deposit source code', 3), ('escrow agreement', 2),
+        ('source code deposit', 2), ('escrow release', 2),
+        ('escrow arrangement', 2), ('software escrow', 2),
+        ('escrow', 1), ('source code', 1),
+    ],
     'Confidentiality': [
         ('confidential information', 2), ('non-disclosure agreement', 2),
         ('shall keep confidential', 2), ('disclose to third parties', 2),
@@ -239,10 +280,19 @@ CLAUSE_KEYWORDS_WEIGHTED = {
         ('not assign', 1), ('no assignment', 1),
     ],
     'Covenant Not to Sue': [
-        ('covenant not to sue', 2), ('agrees not to sue', 2),
-        ('waives right to sue', 2), ('releases claims', 2),
-        ('no right to sue', 2),
-        ('covenant not to sue', 1), ('agree not to sue', 1),
+        ('covenant not to sue', 3), ('agrees not to sue', 3),
+        ('waives right to sue', 3), ('releases claims', 2),
+        ('no right to sue', 2), ('covenant not to bring', 2),
+        ('shall not bring any action', 2), ('release of claims', 2),
+        ('agree not to sue', 1),
+    ],
+    'Uncapped Liability': [
+        ('unlimited liability', 3), ('no cap on liability', 3),
+        ('liability shall not be limited', 3), ('uncapped liability', 3),
+        ('no limitation on liability', 2), ('full liability', 2),
+        ('liability is not limited', 2), ('without limitation of liability', 2),
+        ('notwithstanding any limitation', 2), ('regardless of any cap', 2),
+        ('uncapped', 1), ('unlimited damages', 1),
     ],
 
     # Legal and Governance
@@ -304,8 +354,9 @@ CLAUSE_KEYWORDS_WEIGHTED = {
 
     # Other and Miscellaneous
     'Third Party Beneficiary': [
-        ('no third party beneficiaries', 2), ('intended beneficiary', 2),
+        ('no third party beneficiaries', 3), ('intended beneficiary', 3),
         ('third-party rights', 2), ('benefit of third parties', 2),
+        ('no third-party beneficiary', 2), ('not intended to create', 2),
         ('third party beneficiary', 1),
     ],
     'Audit Rights': [
@@ -373,14 +424,15 @@ class LexiCacheModel:
 
     def __init__(self, projection_path="models/final_projection_head.pth", support_set_path="models/support_set.pkl",
                  knowledge_path="models/clause_knowledge.json", use_train_only: bool = False,
-                 cuad_train_path: str = "data/processed/cuad/train", max_seed_examples_per_type: int = 12,
-                 kw_weight: float = 0.70, model_weight: float = 0.30,
-                 inclusion_conf_threshold: float = 0.65,
+                 cuad_train_path: str = "data/processed/cuad/train", max_seed_examples_per_type: int = 50,
+                 kw_weight: float = 0.55, model_weight: float = 0.45,
+                 inclusion_conf_threshold: float = 0.30,
                  context_promote_threshold: float = 0.70,
-                 model_distance_scale: float = 1.8,
-                 hybrid_agreement_bonus: float = 0.15,
+                 model_distance_scale: float = 5.0,
+                 hybrid_agreement_bonus: float = 0.20,
                  model_label_agg_topk: int = 3,
-                 model_margin_threshold: float = 0.06):
+                 model_margin_threshold: float = 0.06,
+                 fusion_score_threshold: float = 0.10):
         t_total = time.time()
         print("[LexiCacheModel] Loading adaptive meta-learning model...")
 
@@ -436,6 +488,9 @@ class LexiCacheModel:
         self.hybrid_agreement_bonus: float = max(0.0, float(hybrid_agreement_bonus))
         self.model_label_agg_topk: int = max(1, int(model_label_agg_topk))
         self.model_margin_threshold: float = max(0.0, float(model_margin_threshold))
+        # Minimum blended (fused) score required to accept a predicted label.
+        # Works together with the recall gate in _classify_segment.
+        self.fusion_score_threshold: float = max(0.0, float(fusion_score_threshold))
 
         # Persistent knowledge base
         self.learned_types: Dict[str, Dict[str, Any]] = {}
@@ -463,7 +518,9 @@ class LexiCacheModel:
         print(f"  Learned custom types: {len(self.learned_types)}")
         print(
             "  Inference config: "
-            f"kw={self.kw_weight:.2f}, model={self.model_weight:.2f}, include>={self.inclusion_conf_threshold:.2f}, "
+            f"kw={self.kw_weight:.2f}, model={self.model_weight:.2f}, "
+            f"include>={self.inclusion_conf_threshold:.2f}, fusion>={self.fusion_score_threshold:.2f}, "
+            f"agreement_bonus={self.hybrid_agreement_bonus:.2f}, "
             f"topk={self.model_label_agg_topk}, margin>={self.model_margin_threshold:.3f}"
         )
 
@@ -836,9 +893,7 @@ class LexiCacheModel:
             if abs(kw_conf - model_conf) < 0.25:
                 needs_review = True
 
-        # Inclusion decision based on best raw signal (not blended)
-        # This ensures that a strong keyword hit (e.g. 0.70) is not
-        # diluted to below the threshold by a weak/absent model signal.
+        # Raw confidence used for Unknown-clause reporting and as a fallback signal.
         best_raw_conf = max(kw_conf if kw_conf else 0.0, model_conf if model_conf else 0.0)
 
         base: Dict[str, Any] = {
@@ -850,14 +905,40 @@ class LexiCacheModel:
             'model_margin': round(model_margin, 4) if model_margin else 0.0,
         }
 
-        if best_raw_conf >= self.inclusion_conf_threshold:
-            # High confidence: return as a known clause
+        # ── Recall-boost dual-gate inclusion logic ────────────────────────────
+        #
+        # Gate 1 — Recall gate (OR logic, intentional):
+        #   A label is considered if EITHER signal clears its minimum floor.
+        #   • model_conf >= 0.10: even a weak prototype-network signal is enough
+        #     to include the label — the model generalises to rare clause types
+        #     that keyword heuristics miss entirely.
+        #   • kw_conf >= 0.15: a moderate keyword hit alone is sufficient even
+        #     when the model is uncertain (e.g. very short or boilerplate spans).
+        #   Using OR (not AND) is the key recall driver: it prevents either
+        #   signal from vetoing a true positive that the other signal caught.
+        recall_gate_passes: bool = (
+            (model_conf is not None and model_conf >= 0.10)
+            or (kw_conf is not None and kw_conf >= 0.15)
+        )
+
+        # Gate 2 — Fusion gate:
+        #   The blended score (kw_weight * kw_conf + model_weight * model_conf
+        #   + optional agreement bonus) must also clear fusion_score_threshold
+        #   (default 0.20).  This prevents very noisy low-signal predictions
+        #   from being accepted even when the recall gate fires.  Because the
+        #   blended score rewards agreement between both signals, this gate
+        #   naturally favours high-confidence consensus predictions.
+        fusion_gate_passes: bool = best_blended >= self.fusion_score_threshold
+
+        if best_type is not None and recall_gate_passes and fusion_gate_passes:
+            # Both gates pass → return as a known clause type.
+            # Low-confidence known clauses (< 0.65) will have needs_review=True
+            # set in the final pass inside predict_cuad().
             return {**base, 'clause_type': best_type, 'confidence': round(best_blended, 4),
                     'source': source, 'needs_review': needs_review}
-
         else:
-            # Below threshold: include as Unknown so the user can teach it.
-            # Confidence being low means the model is unsure of the type,
+            # One or both gates failed → include as Unknown so the user can
+            # teach it.  Low confidence means the model is unsure of the TYPE,
             # not that the segment is not a clause.
             return {**base, 'clause_type': 'Unknown clause', 'confidence': round(best_raw_conf, 4),
                     'source': 'low_confidence', 'needs_review': True}

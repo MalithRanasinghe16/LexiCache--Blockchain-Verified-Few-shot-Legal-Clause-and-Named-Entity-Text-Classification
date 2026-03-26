@@ -1,0 +1,1111 @@
+{
+  "timestamp": "2026-03-26T19:24:53.247455+00:00",
+  "description": "Document-level multi-label CUAD clause classification evaluation. Binary label per (contract, clause_type): 1 if >=1 annotation exists / predicted.",
+  "config": {
+    "test_dir": "data\\processed\\cuad\\test",
+    "n_test_contracts": 102,
+    "n_cuad_categories": 41,
+    "min_conf": 0.2,
+    "fuzzy_cutoff": 0.6,
+    "max_seed_per_type": 50,
+    "kw_weight": 0.55,
+    "model_weight": 0.45,
+    "inclusion_conf_threshold": 0.3,
+    "fusion_score_threshold": 0.1,
+    "hybrid_agreement_bonus": 0.2,
+    "context_promote_threshold": 0.7,
+    "model_distance_scale": 5.0
+  },
+  "aggregate_metrics": {
+    "macro": {
+      "precision": 0.62063,
+      "recall": 0.173666,
+      "f1": 0.23798
+    },
+    "micro": {
+      "precision": 0.806701,
+      "recall": 0.24226,
+      "f1": 0.372619
+    },
+    "hamming_loss": 0.252033
+  },
+  "top_k_accuracy": {
+    "description": "Per-contract recall: fraction of ground-truth CUAD clause types correctly predicted by the model. Contracts with zero GT annotations are excluded from aggregate statistics.",
+    "aggregate": {
+      "mean": 0.23720784313725488,
+      "min": 0.0,
+      "max": 0.75,
+      "median": 0.2222,
+      "n_contracts": 102
+    }
+  },
+  "per_class_metrics": {
+    "Document Name": {
+      "precision": 1.0,
+      "recall": 0.862745,
+      "f1": 0.926316,
+      "support": 102
+    },
+    "Parties": {
+      "precision": 1.0,
+      "recall": 0.128713,
+      "f1": 0.22807,
+      "support": 101
+    },
+    "Agreement Date": {
+      "precision": 0.935484,
+      "recall": 0.315217,
+      "f1": 0.471545,
+      "support": 92
+    },
+    "Effective Date": {
+      "precision": 1.0,
+      "recall": 0.075949,
+      "f1": 0.141176,
+      "support": 79
+    },
+    "Expiration Date": {
+      "precision": 0.833333,
+      "recall": 0.0625,
+      "f1": 0.116279,
+      "support": 80
+    },
+    "Renewal Term": {
+      "precision": 0.6,
+      "recall": 0.130435,
+      "f1": 0.214286,
+      "support": 23
+    },
+    "Notice Period To Terminate Renewal": {
+      "precision": 1.0,
+      "recall": 0.0625,
+      "f1": 0.117647,
+      "support": 16
+    },
+    "Governing Law": {
+      "precision": 1.0,
+      "recall": 0.488372,
+      "f1": 0.65625,
+      "support": 86
+    },
+    "Most Favored Nation": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 5
+    },
+    "Non-Compete": {
+      "precision": 1.0,
+      "recall": 0.035714,
+      "f1": 0.068966,
+      "support": 28
+    },
+    "Exclusivity": {
+      "precision": 0.65,
+      "recall": 0.361111,
+      "f1": 0.464286,
+      "support": 36
+    },
+    "No-Solicit Of Customers": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 5
+    },
+    "No-Solicit Of Employees": {
+      "precision": 1.0,
+      "recall": 0.111111,
+      "f1": 0.2,
+      "support": 9
+    },
+    "Non-Disparagement": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 4
+    },
+    "Termination For Convenience": {
+      "precision": 0.631579,
+      "recall": 0.307692,
+      "f1": 0.413793,
+      "support": 39
+    },
+    "ROFR/ROFO/ROFN": {
+      "precision": 0.333333,
+      "recall": 0.071429,
+      "f1": 0.117647,
+      "support": 14
+    },
+    "Change Of Control": {
+      "precision": 0.777778,
+      "recall": 0.35,
+      "f1": 0.482759,
+      "support": 20
+    },
+    "Anti-Assignment": {
+      "precision": 1.0,
+      "recall": 0.054795,
+      "f1": 0.103896,
+      "support": 73
+    },
+    "Revenue/Profit Sharing": {
+      "precision": 1.0,
+      "recall": 0.142857,
+      "f1": 0.25,
+      "support": 35
+    },
+    "Price Restrictions": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 1
+    },
+    "Minimum Commitment": {
+      "precision": 0.5,
+      "recall": 0.088235,
+      "f1": 0.15,
+      "support": 34
+    },
+    "Volume Restriction": {
+      "precision": 0.5,
+      "recall": 0.125,
+      "f1": 0.2,
+      "support": 16
+    },
+    "Ip Ownership Assignment": {
+      "precision": 0.625,
+      "recall": 0.238095,
+      "f1": 0.344828,
+      "support": 21
+    },
+    "Joint Ip Ownership": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 8
+    },
+    "License Grant": {
+      "precision": 0.869565,
+      "recall": 0.363636,
+      "f1": 0.512821,
+      "support": 55
+    },
+    "Non-Transferable License": {
+      "precision": 1.0,
+      "recall": 0.0625,
+      "f1": 0.117647,
+      "support": 32
+    },
+    "Affiliate License-Licensor": {
+      "precision": 0.666667,
+      "recall": 0.5,
+      "f1": 0.571429,
+      "support": 4
+    },
+    "Affiliate License-Licensee": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 13
+    },
+    "Unlimited/All-You-Can-Eat-License": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 5
+    },
+    "Irrevocable Or Perpetual License": {
+      "precision": 1.0,
+      "recall": 0.142857,
+      "f1": 0.25,
+      "support": 14
+    },
+    "Source Code Escrow": {
+      "precision": 0.2,
+      "recall": 0.5,
+      "f1": 0.285714,
+      "support": 2
+    },
+    "Post-Termination Services": {
+      "precision": 1.0,
+      "recall": 0.068182,
+      "f1": 0.12766,
+      "support": 44
+    },
+    "Audit Rights": {
+      "precision": 0.9,
+      "recall": 0.191489,
+      "f1": 0.315789,
+      "support": 47
+    },
+    "Uncapped Liability": {
+      "precision": 1.0,
+      "recall": 0.086957,
+      "f1": 0.16,
+      "support": 23
+    },
+    "Cap On Liability": {
+      "precision": 0.923077,
+      "recall": 0.226415,
+      "f1": 0.363636,
+      "support": 53
+    },
+    "Liquidated Damages": {
+      "precision": 0.5,
+      "recall": 0.25,
+      "f1": 0.333333,
+      "support": 4
+    },
+    "Warranty Duration": {
+      "precision": 1.0,
+      "recall": 0.315789,
+      "f1": 0.48,
+      "support": 19
+    },
+    "Insurance": {
+      "precision": 1.0,
+      "recall": 0.4,
+      "f1": 0.571429,
+      "support": 30
+    },
+    "Covenant Not To Sue": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 12
+    },
+    "Third Party Beneficiary": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 8
+    },
+    "Indemnification": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "support": 0
+    }
+  },
+  "type_name_mapping": {
+    "mapped": {
+      "Expiration Date": "Expiration Date",
+      "Document Name": "Document Name",
+      "Agreement Date": "Agreement Date",
+      "Governing Law": "Governing Law",
+      "Price Restrictions": "Price Restrictions",
+      "Post-Termination Services": "Post-Termination Services",
+      "Effective Date": "Effective Date",
+      "License Grant": "License Grant",
+      "Anti-Assignment": "Anti-Assignment",
+      "Limitation of Liability": "Cap On Liability",
+      "Affiliate License-Licensor": "Affiliate License-Licensor",
+      "Warranty Duration": "Warranty Duration",
+      "Termination For Convenience": "Termination For Convenience",
+      "Indemnification": "Indemnification",
+      "Minimum Commitment": "Minimum Commitment",
+      "Insurance": "Insurance",
+      "Exclusivity": "Exclusivity",
+      "IP Ownership Assignment": "Ip Ownership Assignment",
+      "Audit Rights": "Audit Rights",
+      "Parties": "Parties",
+      "Volume Restriction": "Volume Restriction",
+      "Renewal Term": "Renewal Term",
+      "Liquidated Damages": "Liquidated Damages",
+      "Rofr/Rofo/Rofn": "ROFR/ROFO/ROFN",
+      "Revenue/Profit Sharing": "Revenue/Profit Sharing",
+      "Non-Transferable License": "Non-Transferable License",
+      "Change of Control": "Change Of Control",
+      "ROFR/ROFO/ROFN": "ROFR/ROFO/ROFN",
+      "Uncapped Liability": "Uncapped Liability",
+      "Source Code Escrow": "Source Code Escrow",
+      "Cap on Liability": "Cap On Liability",
+      "Change Of Control": "Change Of Control",
+      "Ip Ownership Assignment": "Ip Ownership Assignment",
+      "No-Solicit Of Customers": "No-Solicit Of Customers",
+      "Non-Compete": "Non-Compete",
+      "Irrevocable Or Perpetual License": "Irrevocable Or Perpetual License",
+      "No-Solicit of Employees": "No-Solicit Of Employees",
+      "Notice Period To Terminate Renewal": "Notice Period To Terminate Renewal",
+      "Non-Disparagement": "Non-Disparagement"
+    },
+    "unmapped_outside_cuad41": [
+      "Payment Terms",
+      "Intellectual Property",
+      "Confidentiality",
+      "Counterparts",
+      "Relationship of Parties",
+      "Definitions",
+      "Force Majeure",
+      "Amendment",
+      "Representations and Warranties",
+      "Entire Agreement",
+      "Notice",
+      "Waiver",
+      "Severability",
+      "Jurisdiction",
+      "Dispute Resolution",
+      "Competitive Restriction Exception",
+      "Assignment"
+    ]
+  },
+  "cuad_41_categories": [
+    "Document Name",
+    "Parties",
+    "Agreement Date",
+    "Effective Date",
+    "Expiration Date",
+    "Renewal Term",
+    "Notice Period To Terminate Renewal",
+    "Governing Law",
+    "Most Favored Nation",
+    "Non-Compete",
+    "Exclusivity",
+    "No-Solicit Of Customers",
+    "No-Solicit Of Employees",
+    "Non-Disparagement",
+    "Termination For Convenience",
+    "ROFR/ROFO/ROFN",
+    "Change Of Control",
+    "Anti-Assignment",
+    "Revenue/Profit Sharing",
+    "Price Restrictions",
+    "Minimum Commitment",
+    "Volume Restriction",
+    "Ip Ownership Assignment",
+    "Joint Ip Ownership",
+    "License Grant",
+    "Non-Transferable License",
+    "Affiliate License-Licensor",
+    "Affiliate License-Licensee",
+    "Unlimited/All-You-Can-Eat-License",
+    "Irrevocable Or Perpetual License",
+    "Source Code Escrow",
+    "Post-Termination Services",
+    "Audit Rights",
+    "Uncapped Liability",
+    "Cap On Liability",
+    "Liquidated Damages",
+    "Warranty Duration",
+    "Insurance",
+    "Covenant Not To Sue",
+    "Third Party Beneficiary",
+    "Indemnification"
+  ],
+  "per_contract_top_k": [
+    {
+      "contract": "ACCURAYINC_09_01_2010-EX-10.31-DISTRIBUTOR_AGREEMENT",
+      "gt_count": 13,
+      "pred_count": 6,
+      "found": 5,
+      "recall": 0.3846
+    },
+    {
+      "contract": "AimmuneTherapeuticsInc_20200205_8-K_EX-10.3_11967170_EX-10.3_Development_Agreement",
+      "gt_count": 25,
+      "pred_count": 8,
+      "found": 8,
+      "recall": 0.32
+    },
+    {
+      "contract": "AIRSPANNETWORKSINC_04_11_2000-EX-10.5-Distributor_Agreement",
+      "gt_count": 18,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.1667
+    },
+    {
+      "contract": "ALAMOGORDOFINANCIALCORP_12_16_1999-EX-1-AGENCY_AGREEMENT",
+      "gt_count": 10,
+      "pred_count": 7,
+      "found": 5,
+      "recall": 0.5
+    },
+    {
+      "contract": "ALCOSTORESINC_12_14_2005-EX-10.26-AGENCY_AGREEMENT",
+      "gt_count": 7,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.1429
+    },
+    {
+      "contract": "AMERICANPHYSICIANSCAPITALINC_03_31_2003-EX-10.26-AGENCY_AGREEMENT",
+      "gt_count": 15,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1333
+    },
+    {
+      "contract": "AMERICASSHOPPINGMALLINC_12_10_1999-EX-10.2-SITE_DEVELOPMENT_AND_HOSTING_AGREEMENT",
+      "gt_count": 17,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1176
+    },
+    {
+      "contract": "ASIANDRAGONGROUPINC_08_11_2005-EX-10.5-Reseller_Agreement",
+      "gt_count": 13,
+      "pred_count": 2,
+      "found": 1,
+      "recall": 0.0769
+    },
+    {
+      "contract": "ASPIRITYHOLDINGSLLC_05_07_2012-EX-10.6-OUTSOURCING_AGREEMENT",
+      "gt_count": 15,
+      "pred_count": 4,
+      "found": 4,
+      "recall": 0.2667
+    },
+    {
+      "contract": "AtnInternationalInc_20191108_10-Q_EX-10.1_11878541_EX-10.1_Maintenance_Agreement",
+      "gt_count": 20,
+      "pred_count": 9,
+      "found": 7,
+      "recall": 0.35
+    },
+    {
+      "contract": "AzulSa_20170303_F-1A_EX-10.3_9943903_EX-10.3_Maintenance_Agreement1",
+      "gt_count": 15,
+      "pred_count": 11,
+      "found": 7,
+      "recall": 0.4667
+    },
+    {
+      "contract": "BANGIINC_05_25_2005-EX-10-Premium_Managed_Hosting_Agreement",
+      "gt_count": 5,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.2
+    },
+    {
+      "contract": "BELLICUMPHARMACEUTICALS_INC_05_07_2019-EX-10.1-Supply_Agreement",
+      "gt_count": 18,
+      "pred_count": 9,
+      "found": 6,
+      "recall": 0.3333
+    },
+    {
+      "contract": "BellringBrandsInc_20190920_S-1_EX-10.12_11817081_EX-10.12_Manufacturing_Agreement1",
+      "gt_count": 11,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.2727
+    },
+    {
+      "contract": "BellringBrandsInc_20190920_S-1_EX-10.12_11817081_EX-10.12_Manufacturing_Agreement2",
+      "gt_count": 5,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.4
+    },
+    {
+      "contract": "BEYONDCOMCORP_08_03_2000-EX-10.2-CO-HOSTING_AGREEMENT",
+      "gt_count": 18,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.1667
+    },
+    {
+      "contract": "BIOPURECORP_06_30_1999-EX-10.13-AGENCY_AGREEMENT",
+      "gt_count": 16,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.125
+    },
+    {
+      "contract": "BLUEROCKRESIDENTIALGROWTHREIT_INC_06_01_2016-EX-1.1-AGENCY_AGREEMENT",
+      "gt_count": 9,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.1111
+    },
+    {
+      "contract": "CANOPETROLEUM_INC_12_13_2007-EX-10.1-Sponsorship_Agreement",
+      "gt_count": 8,
+      "pred_count": 2,
+      "found": 1,
+      "recall": 0.125
+    },
+    {
+      "contract": "CardlyticsInc_20180112_S-1_EX-10.16_11002987_EX-10.16_Maintenance_Agreement1",
+      "gt_count": 23,
+      "pred_count": 7,
+      "found": 7,
+      "recall": 0.3043
+    },
+    {
+      "contract": "CardlyticsInc_20180112_S-1_EX-10.16_11002987_EX-10.16_Maintenance_Agreement3",
+      "gt_count": 4,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "ClickstreamCorp_20200330_1-A_EX1A-6_MAT_CTRCT_12089935_EX1A-6_MAT_CTRCT_Development_Agreement",
+      "gt_count": 16,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.1875
+    },
+    {
+      "contract": "Columbia_Laboratories_Bermuda_Ltd._-_AMEND_NO._2_TO_MANUFACTURING_AND_SUPPLY_AGREEMENT",
+      "gt_count": 12,
+      "pred_count": 7,
+      "found": 5,
+      "recall": 0.4167
+    },
+    {
+      "contract": "CURAEGISTECHNOLOGIES_INC_05_26_2010-EX-1-CORPORATE_SPONSORSHIP_AGREEMENT",
+      "gt_count": 11,
+      "pred_count": 5,
+      "found": 5,
+      "recall": 0.4545
+    },
+    {
+      "contract": "CYBERIANOUTPOSTINC_07_09_1998-EX-10.13-PROMOTION_AGREEMENT",
+      "gt_count": 14,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.1429
+    },
+    {
+      "contract": "CytodynInc_20200109_10-Q_EX-10.5_11941634_EX-10.5_License_Agreement",
+      "gt_count": 23,
+      "pred_count": 7,
+      "found": 7,
+      "recall": 0.3043
+    },
+    {
+      "contract": "DataCallTechnologies_20060918_SB-2A_EX-10.9_944510_EX-10.9_Content_License_Agreement",
+      "gt_count": 13,
+      "pred_count": 1,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "DigitalCinemaDestinationsCorp_20111220_S-1_EX-10.10_7346719_EX-10.10_Affiliate_Agreement",
+      "gt_count": 26,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.1154
+    },
+    {
+      "contract": "DOMINIADVISORTRUST_02_18_2005-EX-99._H_2_-SPONSORSHIP_AGREEMENT",
+      "gt_count": 9,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.1111
+    },
+    {
+      "contract": "DRIVENDELIVERIES_INC_05_22_2020-EX-10.4-CONSULTING_AGREEMENT",
+      "gt_count": 16,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.125
+    },
+    {
+      "contract": "EcoScienceSolutionsInc_20171117_8-K_EX-10.1_10956472_EX-10.1_Endorsement_Agreement",
+      "gt_count": 14,
+      "pred_count": 5,
+      "found": 4,
+      "recall": 0.2857
+    },
+    {
+      "contract": "EMERALDHEALTHTHERAPEUTICSINC_06_10_2020-EX-4.5-CONSULTING_AGREEMENT_-_DR._GAETANO_MORELLO_N.D._INC.",
+      "gt_count": 8,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.125
+    },
+    {
+      "contract": "EmmisCommunicationsCorp_20191125_8-K_EX-10.6_11906433_EX-10.6_Marketing_Agreement",
+      "gt_count": 8,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.125
+    },
+    {
+      "contract": "ENTERTAINMENTGAMINGASIAINC_02_15_2005-EX-10.5-DISTRIBUTOR_AGREEMENT",
+      "gt_count": 21,
+      "pred_count": 7,
+      "found": 6,
+      "recall": 0.2857
+    },
+    {
+      "contract": "ETELOS_INC_03_09_2004-EX-10.8-DISTRIBUTOR_AGREEMENT",
+      "gt_count": 16,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.0625
+    },
+    {
+      "contract": "FEDERATEDGOVERNMENTINCOMESECURITIESINC_04_28_2020-EX-99.SERV_AGREE-SERVICES_AGREEMENT_AMENDMENT",
+      "gt_count": 5,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.4
+    },
+    {
+      "contract": "FEDERATEDGOVERNMENTINCOMESECURITIESINC_04_28_2020-EX-99.SERV_AGREE-SERVICES_AGREEMENT_SECONDAMENDMENT",
+      "gt_count": 5,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.4
+    },
+    {
+      "contract": "GluMobileInc_20070319_S-1A_EX-10.09_436630_EX-10.09_Content_License_Agreement2",
+      "gt_count": 9,
+      "pred_count": 4,
+      "found": 4,
+      "recall": 0.4444
+    },
+    {
+      "contract": "GluMobileInc_20070319_S-1A_EX-10.09_436630_EX-10.09_Content_License_Agreement4",
+      "gt_count": 4,
+      "pred_count": 2,
+      "found": 1,
+      "recall": 0.25
+    },
+    {
+      "contract": "GOLDRESOURCECORP_12_11_2008-EX-10.1-STRATEGIC_ALLIANCE_AGREEMENT",
+      "gt_count": 11,
+      "pred_count": 6,
+      "found": 4,
+      "recall": 0.3636
+    },
+    {
+      "contract": "GRANTIERRAENERGYINC_05_07_2012-EX-10.6-TRANSPORTATION_CONTRACT",
+      "gt_count": 13,
+      "pred_count": 9,
+      "found": 5,
+      "recall": 0.3846
+    },
+    {
+      "contract": "GridironBionutrientsInc_20171206_8-K_EX-10.1_10972555_EX-10.1_Endorsement_Agreement",
+      "gt_count": 16,
+      "pred_count": 6,
+      "found": 5,
+      "recall": 0.3125
+    },
+    {
+      "contract": "GSITECHNOLOGYINC_11_16_2009-EX-10.2-INTELLECTUAL_PROPERTY_AGREEMENT_between_SONY_ELECTRONICS_INC._and_GSI_TECHNOLOGY_INC.",
+      "gt_count": 14,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.2143
+    },
+    {
+      "contract": "GSVINC_05_15_1998-EX-10-SPONSORSHIP_AGREEMENT",
+      "gt_count": 13,
+      "pred_count": 8,
+      "found": 4,
+      "recall": 0.3077
+    },
+    {
+      "contract": "HALITRON_INC_03_01_2005-EX-10.15-SPONSORSHIP_AND_DEVELOPMENT_AGREEMENT",
+      "gt_count": 14,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1429
+    },
+    {
+      "contract": "HealthcentralCom_19991108_S-1A_EX-10.27_6623292_EX-10.27_Co-Branding_Agreement",
+      "gt_count": 18,
+      "pred_count": 9,
+      "found": 7,
+      "recall": 0.3889
+    },
+    {
+      "contract": "HEALTHGATEDATACORP_11_24_1999-EX-10.1-HOSTING_AND_MANAGEMENT_AGREEMENT_-_Escrow_Agreement",
+      "gt_count": 6,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.5
+    },
+    {
+      "contract": "ImineCorp_20180725_S-1_EX-10.5_11275970_EX-10.5_Distributor_Agreement",
+      "gt_count": 15,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.0667
+    },
+    {
+      "contract": "IMPCOTECHNOLOGIESINC_04_15_2003-EX-10.65-JOINT_VENTURE_AGREEMENT",
+      "gt_count": 12,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.25
+    },
+    {
+      "contract": "INTRICONCORP_03_10_2009-EX-10.22-Strategic_Alliance_Agreement",
+      "gt_count": 15,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.2
+    },
+    {
+      "contract": "IpassInc_20181203_8-K_EX-99.1_11445874_EX-99.1_Reseller_Agreement",
+      "gt_count": 18,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1111
+    },
+    {
+      "contract": "JINGWEIINTERNATIONALLTD_10_04_2007-EX-10.7-INTELLECTUAL_PROPERTY_AGREEMENT",
+      "gt_count": 11,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1818
+    },
+    {
+      "contract": "LiquidmetalTechnologiesInc_20200205_8-K_EX-10.1_11968198_EX-10.1_Development_Agreement",
+      "gt_count": 23,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.087
+    },
+    {
+      "contract": "MEETGROUP_INC_06_29_2017-EX-10.1-COOPERATION_AGREEMENT",
+      "gt_count": 7,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.4286
+    },
+    {
+      "contract": "Microgenics_Corporation_-_Collaborative_Development_and_Commercialization_Agreement",
+      "gt_count": 21,
+      "pred_count": 8,
+      "found": 5,
+      "recall": 0.2381
+    },
+    {
+      "contract": "MJBIOTECH_INC_12_06_2018-EX-99.01-JOINT_VENTURE_AGREEMENT",
+      "gt_count": 13,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.2308
+    },
+    {
+      "contract": "MOVADOGROUPINC_04_30_2003-EX-10.28-ENDORSEMENT_AGREEMENT",
+      "gt_count": 6,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.5
+    },
+    {
+      "contract": "NakedBrandGroupInc_20150731_POS_AM_on_S-1__EX-10.75_9196027_EX-10.75_Endorsement_Agreement",
+      "gt_count": 18,
+      "pred_count": 7,
+      "found": 5,
+      "recall": 0.2778
+    },
+    {
+      "contract": "NEONSYSTEMSINC_03_01_1999-EX-10.5-DISTRIBUTOR_AGREEMENT_Amendment",
+      "gt_count": 12,
+      "pred_count": 5,
+      "found": 4,
+      "recall": 0.3333
+    },
+    {
+      "contract": "NEONSYSTEMSINC_03_01_1999-EX-10.5-DISTRIBUTOR_AGREEMENT_New",
+      "gt_count": 18,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.1667
+    },
+    {
+      "contract": "NeuroboPharmaceuticalsInc_20190903_S-4_EX-10.36_11802165_EX-10.36_Manufacturing_Agreement__Supply_Agreement",
+      "gt_count": 8,
+      "pred_count": 4,
+      "found": 4,
+      "recall": 0.5
+    },
+    {
+      "contract": "NEXSTARFINANCEHOLDINGSINC_03_27_2002-EX-10.26-OUTSOURCING_AGREEMENT",
+      "gt_count": 15,
+      "pred_count": 10,
+      "found": 8,
+      "recall": 0.5333
+    },
+    {
+      "contract": "NlsPharmaceuticsLtd_20200228_F-1_EX-10.14_12029046_EX-10.14_Development_Agreement",
+      "gt_count": 16,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.1875
+    },
+    {
+      "contract": "OAKTREECAPITALGROUP_LLC_03_02_2020-EX-10.8-Services_Agreement",
+      "gt_count": 10,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.3
+    },
+    {
+      "contract": "OMINTO_INC_03_29_2004-EX-10-RESELLER_AGREEMENT",
+      "gt_count": 15,
+      "pred_count": 5,
+      "found": 5,
+      "recall": 0.3333
+    },
+    {
+      "contract": "OPERALTD_04_30_2020-EX-4.14-SERVICE_AGREEMENT",
+      "gt_count": 11,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "ORBSATCORP_08_17_2007-EX-7.3-STRATEGIC_ALLIANCE_AGREEMENT",
+      "gt_count": 11,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.1818
+    },
+    {
+      "contract": "PACIRA_PHARMACEUTICALS_INC._-_A_R_STRATEGIC_LICENSING_DISTRIBUTION_AND_MARKETING_AGREEMENT",
+      "gt_count": 24,
+      "pred_count": 12,
+      "found": 9,
+      "recall": 0.375
+    },
+    {
+      "contract": "PalmerSquareCapitalBdcInc_20200116_10-12GA_EX-10.6_11949289_EX-10.6_Trademark_License_Agreement",
+      "gt_count": 12,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1667
+    },
+    {
+      "contract": "PAXMEDICA_INC_07_02_2020-EX-10.12-Master_Service_Agreement",
+      "gt_count": 12,
+      "pred_count": 6,
+      "found": 5,
+      "recall": 0.4167
+    },
+    {
+      "contract": "PelicanDeliversInc_20200211_S-1_EX-10.3_11975895_EX-10.3_Development_Agreement2",
+      "gt_count": 12,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.0833
+    },
+    {
+      "contract": "PfHospitalityGroupInc_20150923_10-12G_EX-10.1_9266710_EX-10.1_Franchise_Agreement1",
+      "gt_count": 23,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.087
+    },
+    {
+      "contract": "PharmagenInc_20120803_8-KA_EX-10.1_7693204_EX-10.1_Endorsement_Agreement",
+      "gt_count": 12,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.0833
+    },
+    {
+      "contract": "PlayboyEnterprisesInc_20090220_10-QA_EX-10.2_4091580_EX-10.2_Content_License_Agreement__Marketing_Agreement__Sales-Purchase_Agreement2",
+      "gt_count": 4,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.25
+    },
+    {
+      "contract": "PRECIGEN_INC_01_22_2020-EX-99.1-JOINT_FILING_AGREEMENT",
+      "gt_count": 2,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "PREMIERBIOMEDICALINC_05_14_2020-EX-10.2-INTELLECTUAL_PROPERTY_AGREEMENT",
+      "gt_count": 9,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.2222
+    },
+    {
+      "contract": "QBIOMEDINC_04_08_2020-EX-99.1-JOINT_FILING_AGREEMENT",
+      "gt_count": 3,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "RareElementResourcesLtd_20171019_SC_13D_EX-99.4_10897534_EX-99.4_Intellectual_Property_Agreement",
+      "gt_count": 14,
+      "pred_count": 9,
+      "found": 7,
+      "recall": 0.5
+    },
+    {
+      "contract": "RemarkHoldingsInc_20081114_10-Q_EX-10.24_2895649_EX-10.24_Content_License_Agreement",
+      "gt_count": 20,
+      "pred_count": 6,
+      "found": 5,
+      "recall": 0.25
+    },
+    {
+      "contract": "REWALKROBOTICSLTD_07_10_2014-EX-10.2-STRATEGIC_ALLIANCE_AGREEMENT",
+      "gt_count": 10,
+      "pred_count": 4,
+      "found": 4,
+      "recall": 0.4
+    },
+    {
+      "contract": "SalesforcecomInc_20171122_10-Q_EX-10.1_10961535_EX-10.1_Reseller_Agreement",
+      "gt_count": 3,
+      "pred_count": 1,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "ScansourceInc_20190509_10-Q_EX-10.2_11661422_EX-10.2_Distributor_Agreement",
+      "gt_count": 5,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.6
+    },
+    {
+      "contract": "SEASPINEHOLDINGSCORP_10_10_2018-EX-10.1-SUPPLY_AGREEMENT",
+      "gt_count": 19,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.1579
+    },
+    {
+      "contract": "SoupmanInc_20150814_8-K_EX-10.1_9230148_EX-10.1_Franchise_Agreement2",
+      "gt_count": 2,
+      "pred_count": 1,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "SoupmanInc_20150814_8-K_EX-10.1_9230148_EX-10.1_Franchise_Agreement3",
+      "gt_count": 2,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "SoupmanInc_20150814_8-K_EX-10.1_9230148_EX-10.1_Franchise_Agreement4",
+      "gt_count": 3,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "SPORTHALEYINC_09_29_1997-EX-10.2-10-ENDORSEMENT_AGREEMENT",
+      "gt_count": 12,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.1667
+    },
+    {
+      "contract": "STAMPSCOMINC_06_24_1999-EX-10.18-SPONSORSHIP_AGREEMENT",
+      "gt_count": 16,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.125
+    },
+    {
+      "contract": "TALCOTTRESOLUTIONLIFEINSURANCECO-SEPARATEACCOUNTTWELVE_04_30_2020-EX-99.8_L_-SERVICE_AGREEMENT",
+      "gt_count": 9,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.2222
+    },
+    {
+      "contract": "TodosMedicalLtd_20190328_20-F_EX-4.10_11587157_EX-4.10_Marketing_Agreement__Reseller_Agreement",
+      "gt_count": 22,
+      "pred_count": 2,
+      "found": 2,
+      "recall": 0.0909
+    },
+    {
+      "contract": "TRANSMONTAIGNEPARTNERSLLC_03_13_2020-EX-10.9-SERVICES_AGREEMENT",
+      "gt_count": 8,
+      "pred_count": 1,
+      "found": 1,
+      "recall": 0.125
+    },
+    {
+      "contract": "UNITEDNATIONALBANCORP_03_03_1999-EX-99-Outsourcing_Agreement_with_the_BISYS_Group_Inc.",
+      "gt_count": 3,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "UpjohnInc_20200121_10-12G_EX-2.6_11948692_EX-2.6_Manufacturing_Agreement__Supply_Agreement",
+      "gt_count": 23,
+      "pred_count": 14,
+      "found": 11,
+      "recall": 0.4783
+    },
+    {
+      "contract": "VAXCYTE_INC_05_22_2020-EX-10.19-SUPPLY_AGREEMENT",
+      "gt_count": 16,
+      "pred_count": 4,
+      "found": 4,
+      "recall": 0.25
+    },
+    {
+      "contract": "VIRGINGALACTICHOLDINGS_INC_04_08_2020-EX-99.1-JOINT_FILING_STATEMENT",
+      "gt_count": 3,
+      "pred_count": 0,
+      "found": 0,
+      "recall": 0.0
+    },
+    {
+      "contract": "VIVINT_SOLAR_INC._-_NON-COMPETITION_AGREEMENT",
+      "gt_count": 4,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.75
+    },
+    {
+      "contract": "WEBHELPCOMINC_03_22_2000-EX-10.8-HOSTING_AGREEMENT",
+      "gt_count": 12,
+      "pred_count": 3,
+      "found": 2,
+      "recall": 0.1667
+    },
+    {
+      "contract": "WELLSFARGOMORTGAGEBACKEDSECURITIES2006-6TRUST_05_11_2006-EX-10.3-Yield_Maintenance_Agreement",
+      "gt_count": 8,
+      "pred_count": 4,
+      "found": 2,
+      "recall": 0.25
+    },
+    {
+      "contract": "WHITESMOKE_INC_11_08_2011-EX-10.26-PROMOTION_AND_DISTRIBUTION_AGREEMENT",
+      "gt_count": 12,
+      "pred_count": 4,
+      "found": 3,
+      "recall": 0.25
+    },
+    {
+      "contract": "WORLDWIDESTRATEGIESINC_11_02_2005-EX-10-RESELLER_AGREEMENT",
+      "gt_count": 22,
+      "pred_count": 4,
+      "found": 4,
+      "recall": 0.1818
+    },
+    {
+      "contract": "XinhuaSportsEntertainmentLtd_20070221_F-1_EX-99.4_645553_EX-99.4_Content_License_Agreement",
+      "gt_count": 12,
+      "pred_count": 3,
+      "found": 3,
+      "recall": 0.25
+    },
+    {
+      "contract": "ZogenixInc_20190509_10-Q_EX-10.2_11663313_EX-10.2_Distributor_Agreement",
+      "gt_count": 24,
+      "pred_count": 10,
+      "found": 9,
+      "recall": 0.375
+    }
+  ]
+}

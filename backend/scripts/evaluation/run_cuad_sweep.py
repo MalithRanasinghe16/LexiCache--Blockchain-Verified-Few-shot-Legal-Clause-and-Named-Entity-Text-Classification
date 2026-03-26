@@ -35,7 +35,16 @@ def parse_metrics(output: str) -> Dict[str, float]:
     return metrics
 
 
-def run_one(py_exec: str, cfg: Dict[str, float | int], test_dir: Path, max_files: int, teach_k: int, result_jsonl: Path) -> Tuple[int, str]:
+def run_one(
+    py_exec: str,
+    cfg: Dict[str, float | int],
+    test_dir: Path,
+    max_files: int,
+    teach_k: int,
+    result_jsonl: Path,
+    teach_strategy: str,
+    track_best_during_teaching: bool,
+) -> Tuple[int, str]:
     cmd = [
         py_exec,
         "-m",
@@ -46,6 +55,8 @@ def run_one(py_exec: str, cfg: Dict[str, float | int], test_dir: Path, max_files
         str(max_files),
         "--teach-k",
         str(teach_k),
+        "--teach-strategy",
+        str(teach_strategy),
         "--min-conf",
         str(cfg["min_conf"]),
         "--max-seed-per-type",
@@ -66,6 +77,9 @@ def run_one(py_exec: str, cfg: Dict[str, float | int], test_dir: Path, max_files
         str(result_jsonl),
     ]
 
+    if track_best_during_teaching:
+        cmd.append("--track-best-during-teaching")
+
     proc = subprocess.run(cmd, capture_output=True, text=True)
     output = (proc.stdout or "") + "\n" + (proc.stderr or "")
     return proc.returncode, output
@@ -78,6 +92,8 @@ def main() -> None:
     parser.add_argument("--teach-k", type=int, default=5)
     parser.add_argument("--result-jsonl", type=Path, default=Path("experiments/results/cuad_eval_results.jsonl"))
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--teach-strategy", type=str, default="missed", choices=["missed", "first"])
+    parser.add_argument("--track-best-during-teaching", action="store_true")
     args = parser.parse_args()
 
     py_exec = str(Path(".venv") / "Scripts" / "python.exe")
@@ -89,7 +105,7 @@ def main() -> None:
 
     fixed = {
         "promote": 0.70,
-        "dist": 1.8,
+        "dist": 2.4,
         "agree": 0.15,
     }
 
@@ -120,6 +136,8 @@ def main() -> None:
             max_files=args.max_files,
             teach_k=args.teach_k,
             result_jsonl=args.result_jsonl,
+            teach_strategy=args.teach_strategy,
+            track_best_during_teaching=args.track_best_during_teaching,
         )
 
         if code != 0:

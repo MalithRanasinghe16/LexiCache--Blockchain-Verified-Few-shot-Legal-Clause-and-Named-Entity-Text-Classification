@@ -43,7 +43,14 @@ class PrototypicalNetwork(nn.Module):
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             with torch.set_grad_enabled(enable_grad):
                 outputs = self.encoder(**inputs)
-            batch_emb = outputs.last_hidden_state.mean(dim=1)  # mean pooling
+
+            # Masked mean pooling avoids padding-token contamination in sentence embeddings.
+            token_emb = outputs.last_hidden_state
+            attn_mask = inputs["attention_mask"].unsqueeze(-1).to(token_emb.dtype)
+            masked_sum = (token_emb * attn_mask).sum(dim=1)
+            lengths = attn_mask.sum(dim=1).clamp(min=1e-6)
+            batch_emb = masked_sum / lengths
+
             # In inference mode move to CPU to reduce memory; keep on device for training.
             embeddings.append(batch_emb if enable_grad else batch_emb.cpu())
         return torch.cat(embeddings, dim=0)
