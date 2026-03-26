@@ -299,6 +299,12 @@ class LegalBERTMultiLabel(nn.Module):
     ) -> None:
         super().__init__()
         self.encoder = AutoModel.from_pretrained(encoder_name)
+        
+        # Enable gradient checkpointing to drastically reduce memory usage
+        # during the 'unfrozen' training epochs.
+        if hasattr(self.encoder, "gradient_checkpointing_enable"):
+            self.encoder.gradient_checkpointing_enable()
+            
         hidden = self.encoder.config.hidden_size
         self.dropout = nn.Dropout(dropout)
         self.classifier = nn.Linear(hidden, num_labels)
@@ -438,8 +444,8 @@ def parse_args() -> argparse.Namespace:
                    help="HuggingFace encoder model name")
     p.add_argument("--epochs", type=int, default=8,
                    help="Number of training epochs")
-    p.add_argument("--batch-size", type=int, default=4,
-                   help="Training batch size (reduce if OOM)")
+    p.add_argument("--batch-size", type=int, default=2,
+                   help="Training batch size (reduce if OOM, default 2)")
     p.add_argument("--max-chunks", type=int, default=6,
                    help="Max document chunks (6 × 512 = 3072 tokens per doc)")
     p.add_argument("--chunk-size", type=int, default=512,
@@ -457,6 +463,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--freeze-encoder-epochs", type=int, default=1,
                    help="Freeze encoder for first N epochs (train head only)")
+    p.add_argument("--resume-from", type=str, default=None,
+                   help="Path to a checkpoint .pth file to resume training from")
     return p.parse_args()
 
 
@@ -517,6 +525,18 @@ def main() -> None:
     pos_weight = compute_pos_weights(train_ds).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
+    start_epoch = 1
+    if args.resume_from:
+        print(f"\nRestoring model weights from checkpoint: {args.resume_from}")
+        model.load_state_dict(torch.load(args.resume_from, map_location=device))
+        
+        # Try to infer starting epoch from the filename (e.g., epoch_01)
+        import re
+        match = re.search(r"epoch_(\d+)", str(args.resume_from))
+        if match:
+            start_epoch = int(match.group(1)) + 1
+            print(f"Resuming training from Epoch {start_epoch}")
+    
     # -----------------------------------------------------------------------
     # Optimizer & scheduler
     # -----------------------------------------------------------------------
@@ -549,7 +569,7 @@ def main() -> None:
     best_epoch = 0
     history = []
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         print(f"\nEpoch {epoch}/{args.epochs}")
 
         # Optionally freeze encoder for first N epochs
