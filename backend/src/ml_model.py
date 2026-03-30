@@ -1,4 +1,5 @@
 """
+ml_model.py
 Adaptive meta-learning model for LexiCache.
 Supports online adaptation: detects unknown clauses, accepts user labels, and meta-learns in real-time.
 """
@@ -15,8 +16,80 @@ from typing import List, Tuple, Dict, Optional, Any, cast
 from collections import defaultdict
 from datetime import datetime
 
-from src.modeling import PrototypicalNetwork
+from src.modeling import PrototypicalNetwork, LegalBERTMultiLabel
 from src.data import normalize_text
+
+CUAD_41_CATEGORIES: List[str] = [
+    "Document Name", "Parties", "Agreement Date", "Effective Date",
+    "Expiration Date", "Renewal Term", "Notice Period To Terminate Renewal",
+    "Governing Law", "Most Favored Nation", "Non-Compete", "Exclusivity",
+    "No-Solicit Of Customers", "No-Solicit Of Employees", "Non-Disparagement",
+    "Termination For Convenience", "ROFR/ROFO/ROFN", "Change Of Control",
+    "Anti-Assignment", "Revenue/Profit Sharing", "Price Restrictions",
+    "Minimum Commitment", "Volume Restriction", "Ip Ownership Assignment",
+    "Joint Ip Ownership", "License Grant", "Non-Transferable License",
+    "Affiliate License-Licensor", "Affiliate License-Licensee",
+    "Unlimited/All-You-Can-Eat-License", "Irrevocable Or Perpetual License",
+    "Source Code Escrow", "Post-Termination Services", "Audit Rights",
+    "Uncapped Liability", "Cap On Liability", "Liquidated Damages",
+    "Warranty Duration", "Insurance", "Covenant Not To Sue",
+    "Third Party Beneficiary", "Indemnification",
+]
+
+# Per-class minimum confidence thresholds for including a prediction.
+# Derived from ablation results: rare/hard classes use lower thresholds to
+# improve recall (these types had near-zero F1 at the global 0.30 threshold).
+# Easy/high-precision classes keep a stricter threshold to avoid false positives.
+PER_CLASS_INCLUSION_THRESHOLDS: Dict[str, float] = {
+    # Near-zero F1 in ablation — maximum permissiveness to catch any true positive
+    "Most Favored Nation":          0.18,
+    "No-Solicit Of Customers":      0.18,
+    "No-Solicit Of Employees":      0.18,
+    "Non-Disparagement":            0.18,
+    # Low F1 (0.05–0.15) — very permissive
+    "Non-Compete":                  0.20,
+    "Anti-Assignment":              0.22,
+    "Expiration Date":              0.22,
+    "Renewal Term":                 0.22,
+    "ROFR/ROFO/ROFN":              0.22,
+    "Revenue/Profit Sharing":       0.22,
+    "Price Restrictions":           0.22,
+    "Volume Restriction":           0.22,
+    "Minimum Commitment":           0.22,
+    "Joint Ip Ownership":           0.22,
+    "Unlimited/All-You-Can-Eat-License": 0.22,
+    "Affiliate License-Licensor":   0.22,
+    "Affiliate License-Licensee":   0.22,
+    # Moderate difficulty — permissive
+    "Source Code Escrow":           0.25,
+    "Post-Termination Services":    0.25,
+    "Non-Transferable License":     0.25,
+    "Irrevocable Or Perpetual License": 0.25,
+    "Liquidated Damages":           0.25,
+    "Warranty Duration":            0.25,
+    "Insurance":                    0.25,
+    "Covenant Not To Sue":          0.25,
+    "Third Party Beneficiary":      0.25,
+    "Notice Period To Terminate Renewal": 0.25,
+    # Medium F1 range — moderate threshold
+    "Change Of Control":            0.28,
+    "Termination For Convenience":  0.28,
+    "Ip Ownership Assignment":      0.28,
+    "License Grant":                0.28,
+    "Cap On Liability":             0.28,
+    "Uncapped Liability":           0.28,
+    "Audit Rights":                 0.28,
+    "Indemnification":              0.28,
+    "Exclusivity":                  0.28,
+    # Better-performing types — standard threshold
+    "Agreement Date":               0.30,
+    "Effective Date":               0.30,
+    "Governing Law":                0.35,
+    # High-precision types — strict threshold
+    "Document Name":                0.40,
+    "Parties":                      0.40,
+}
+
 
 # Heading patterns used in the contract segmenter
 _HEADING_LINE_PATTERNS = [
@@ -424,17 +497,18 @@ class LexiCacheModel:
 
     def __init__(self, projection_path="models/final_projection_head.pth", support_set_path="models/support_set.pkl",
                  knowledge_path="models/clause_knowledge.json", use_train_only: bool = False,
-                 cuad_train_path: str = "data/processed/cuad/train", max_seed_examples_per_type: int = 50,
-                 kw_weight: float = 0.55, model_weight: float = 0.45,
-                 inclusion_conf_threshold: float = 0.30,
+                 cuad_train_path: str = "data/processed/cuad/train", max_seed_examples_per_type: int = 100,
+                 kw_weight: float = 0.35, model_weight: float = 0.65,
+                 inclusion_conf_threshold: float = 0.20,
                  context_promote_threshold: float = 0.70,
                  model_distance_scale: float = 5.0,
                  hybrid_agreement_bonus: float = 0.20,
                  model_label_agg_topk: int = 3,
                  model_margin_threshold: float = 0.06,
-                 fusion_score_threshold: float = 0.10):
+                 fusion_score_threshold: float = 0.10,
+                 use_multilabel: bool = False):
         t_total = time.time()
-        print("[LexiCacheModel] Loading adaptive meta-learning model...")
+        print(f"[LexiCacheModel] Loading model (multilabel_override={use_multilabel})...")
 
         projection_path = self._resolve_existing_path(
             projection_path,
@@ -488,9 +562,45 @@ class LexiCacheModel:
         self.hybrid_agreement_bonus: float = max(0.0, float(hybrid_agreement_bonus))
         self.model_label_agg_topk: int = max(1, int(model_label_agg_topk))
         self.model_margin_threshold: float = max(0.0, float(model_margin_threshold))
-        # Minimum blended (fused) score required to accept a predicted label.
-        # Works together with the recall gate in _classify_segment.
         self.fusion_score_threshold: float = max(0.0, float(fusion_score_threshold))
+
+        self.use_multilabel = use_multilabel
+        self.multilabel_model = None
+        self.multilabel_tokenizer = None
+        
+        # Per-class thresholds for the multilabel model (loaded from training output if available)
+        self.multilabel_per_class_thresholds: Optional[np.ndarray] = None
+
+        if self.use_multilabel:
+            print("[LexiCacheModel] Loading full document-level Multi-Label Model...")
+            model_dir = Path("models/cuad_multilabel_finetuned")
+            if model_dir.exists():
+                try:
+                    from transformers import AutoTokenizer
+                    self.multilabel_tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+                    self.multilabel_model = LegalBERTMultiLabel().to(self.model.device)
+                    weights_path = None
+                    if (model_dir / "best_model.pth").exists():
+                        weights_path = model_dir / "best_model.pth"
+                    elif (model_dir / "final_model.pth").exists():
+                        weights_path = model_dir / "final_model.pth"
+
+                    if weights_path:
+                        self.multilabel_model.load_state_dict(torch.load(weights_path, map_location=self.model.device))
+                        self.multilabel_model.eval()
+                        print(f"  [timing] LegalBERTMultiLabel loaded from {weights_path}")
+                    else:
+                        print(f"  [warn] LegalBERTMultiLabel weights not found in {model_dir}")
+
+                    # Load per-class thresholds produced by threshold tuning (if available)
+                    thresholds_path = model_dir / "per_class_thresholds.npy"
+                    if thresholds_path.exists():
+                        self.multilabel_per_class_thresholds = np.load(str(thresholds_path))
+                        print(f"  [timing] Per-class thresholds loaded from {thresholds_path}")
+                except Exception as eval_ex:
+                    print(f"  [error] Failed to load LegalBERTMultiLabel: {eval_ex}")
+            else:
+                print(f"  [warn] Multilabel model dir not found: {model_dir}")
 
         # Persistent knowledge base
         self.learned_types: Dict[str, Dict[str, Any]] = {}
@@ -834,114 +944,96 @@ class LexiCacheModel:
 
     def _classify_segment(self, segment_text: str, context_heading: str = '') -> Dict:
         """
-        Hybrid ensemble classification using raw text (no normalization).
-        Preserves legal capitalization, punctuation, and exact wording for accurate keyword matching.
-        Normalization is only applied in the support set (teach/feedback) path.
-
-        2-tier inclusion logic based on best raw signal confidence:
-          >= 0.65 : return as a known clause type
-          < 0.65  : return as 'Unknown clause' so the user can teach it
-
-        Nothing is dropped here based on confidence alone.
-        Low confidence means the model is unsure of the TYPE, not that
-        the segment is not a clause. Structural garbage (short segments,
-        page numbers, bare headers) is filtered in predict_cuad by length.
+        Simplified and stronger hybrid classification.
+        - Uses raw text for keyword matching (preserves legal phrasing).
+        - Uses normalized text for model embedding.
+        - Simple weighted average with agreement bonus.
         """
-        # Use raw text for keyword classification.
-        # normalize_text() strips capitalization and legal punctuation that
-        # the keyword heuristics depend on (e.g. "INDEMNIFICATION", "GOVERNING LAW").
-        raw = segment_text
+        raw = segment_text.strip()
+        if len(raw) < 30:
+            return {
+                'clause_type': 'Unknown clause',
+                'confidence': 0.0,
+                'source': 'too_short',
+                'needs_review': True
+            }
 
-        # Model embedding MUST be from normalized text so it matches the support set
-        # (which is built using normalize_text in learn_from_feedback).
+        # Keyword classification on raw text
+        kw_type, kw_conf = self._classify_by_keywords(raw, context_heading)
+
+        # Model classification on normalized text
+        normalized = normalize_text(raw)
         with torch.no_grad():
-            normalized_for_emb = normalize_text(raw)
-            emb = self.model([normalized_for_emb], batch_size=1)
+            emb = self.model([normalized], batch_size=1)
             proj = self.projection(emb.to(self.model.device))
 
-        # PATH A: Keyword-based (heading-boosted) - already operates on raw text
-        kw_type, kw_conf = self._classify_by_keywords(segment_text, context_heading)
-
-        # PATH B: Model-based few-shot (prototype distance)
         model_type, model_conf, model_margin = self._classify_by_model_similarity(proj)
 
-        # Blended scoring (used for type selection only, not inclusion decision)
-        candidates: Dict[str, float] = {}
-        if kw_type:
-            candidates[kw_type] = candidates.get(kw_type, 0.0) + kw_conf * self.kw_weight
-        if model_type:
-            candidates[model_type] = candidates.get(model_type, 0.0) + model_conf * self.model_weight
+        # Simple hybrid fusion
         if kw_type and model_type and kw_type == model_type:
-            candidates[kw_type] = min(0.98, candidates[kw_type] + self.hybrid_agreement_bonus)
-
-        best_type = max(candidates, key=lambda k: candidates.get(k, 0.0)) if candidates else None
-        best_blended = candidates[best_type] if best_type else 0.0
-
-        # Source label
-        if kw_type and kw_type == model_type:
+            # Strong agreement bonus
+            blended_conf = min(0.98, (kw_conf * self.kw_weight + model_conf * self.model_weight) + 0.18)
+            final_type = kw_type
             source = 'hybrid_agree'
-        elif best_type == kw_type:
+        elif kw_type and model_type:
+            # Choose the stronger signal, but blend a little
+            if kw_conf > model_conf * 1.1:
+                final_type = kw_type
+                blended_conf = kw_conf * self.kw_weight + model_conf * 0.25
+                source = 'keywords'
+            else:
+                final_type = model_type
+                blended_conf = model_conf * self.model_weight + kw_conf * 0.25
+                source = 'model'
+        elif kw_type:
+            final_type = kw_type
+            blended_conf = kw_conf * self.kw_weight
             source = 'keywords'
-        elif best_type == model_type:
+        elif model_type:
+            final_type = model_type
+            # Learned/taught types get full model weight — they have no keyword signal
+            # by design (user-defined), so the 0.45 discount would structurally block them.
+            if model_type in self.learned_types:
+                blended_conf = min(0.95, model_conf * 0.85)
+            else:
+                blended_conf = model_conf * self.model_weight
             source = 'model'
         else:
-            source = 'unknown'
+            final_type = 'Unknown clause'
+            blended_conf = 0.0
+            source = 'low_confidence'
 
-        # Flag disagreement
-        needs_review = False
-        if kw_type and model_type and kw_type != model_type:
-            if abs(kw_conf - model_conf) < 0.25:
-                needs_review = True
+        # Apply per-class inclusion threshold: if confidence is below the minimum
+        # for this clause type, demote to Unknown rather than return a noisy prediction.
+        # User-taught types use a fixed lower bar since they lack keyword support.
+        if final_type != 'Unknown clause':
+            if final_type in self.learned_types:
+                min_conf = 0.25
+            else:
+                min_conf = PER_CLASS_INCLUSION_THRESHOLDS.get(
+                    final_type, self.inclusion_conf_threshold
+                )
+            if blended_conf < min_conf:
+                final_type = 'Unknown clause'
+                blended_conf = 0.0
+                source = 'low_confidence'
 
-        # Raw confidence used for Unknown-clause reporting and as a fallback signal.
-        best_raw_conf = max(kw_conf if kw_conf else 0.0, model_conf if model_conf else 0.0)
+        # Lower needs_review bar for user-taught types (they intentionally lack keywords)
+        if final_type in self.learned_types:
+            needs_review = blended_conf < 0.35
+        else:
+            needs_review = blended_conf < 0.60 or final_type == 'Unknown clause'
 
-        base: Dict[str, Any] = {
-            'embedding': proj,
+        return {
+            'clause_type': final_type,
+            'confidence': round(blended_conf, 4),
+            'source': source,
+            'needs_review': needs_review,
             'kw_type': kw_type,
             'kw_conf': round(kw_conf, 4) if kw_conf else 0.0,
             'model_type': model_type,
             'model_conf': round(model_conf, 4) if model_conf else 0.0,
-            'model_margin': round(model_margin, 4) if model_margin else 0.0,
         }
-
-        # ── Recall-boost dual-gate inclusion logic ────────────────────────────
-        #
-        # Gate 1 — Recall gate (OR logic, intentional):
-        #   A label is considered if EITHER signal clears its minimum floor.
-        #   • model_conf >= 0.10: even a weak prototype-network signal is enough
-        #     to include the label — the model generalises to rare clause types
-        #     that keyword heuristics miss entirely.
-        #   • kw_conf >= 0.15: a moderate keyword hit alone is sufficient even
-        #     when the model is uncertain (e.g. very short or boilerplate spans).
-        #   Using OR (not AND) is the key recall driver: it prevents either
-        #   signal from vetoing a true positive that the other signal caught.
-        recall_gate_passes: bool = (
-            (model_conf is not None and model_conf >= 0.10)
-            or (kw_conf is not None and kw_conf >= 0.15)
-        )
-
-        # Gate 2 — Fusion gate:
-        #   The blended score (kw_weight * kw_conf + model_weight * model_conf
-        #   + optional agreement bonus) must also clear fusion_score_threshold
-        #   (default 0.20).  This prevents very noisy low-signal predictions
-        #   from being accepted even when the recall gate fires.  Because the
-        #   blended score rewards agreement between both signals, this gate
-        #   naturally favours high-confidence consensus predictions.
-        fusion_gate_passes: bool = best_blended >= self.fusion_score_threshold
-
-        if best_type is not None and recall_gate_passes and fusion_gate_passes:
-            # Both gates pass → return as a known clause type.
-            # Low-confidence known clauses (< 0.65) will have needs_review=True
-            # set in the final pass inside predict_cuad().
-            return {**base, 'clause_type': best_type, 'confidence': round(best_blended, 4),
-                    'source': source, 'needs_review': needs_review}
-        else:
-            # One or both gates failed → include as Unknown so the user can
-            # teach it.  Low confidence means the model is unsure of the TYPE,
-            # not that the segment is not a clause.
-            return {**base, 'clause_type': 'Unknown clause', 'confidence': round(best_raw_conf, 4),
-                    'source': 'low_confidence', 'needs_review': True}
 
     # Post-processing: merge, demote, context-promote
 
@@ -1070,6 +1162,74 @@ class LexiCacheModel:
 
     # Main prediction pipeline
 
+    def _predict_document_labels(self, contract_text: str) -> Dict[str, float]:
+        """Run the fine-tuned multilabel model to get document-level clause probabilities.
+
+        Returns a dict mapping each CUAD clause type to its sigmoid probability.
+        Returns an empty dict if the multilabel model is not loaded.
+        """
+        if self.multilabel_model is None or self.multilabel_tokenizer is None:
+            return {}
+
+        MAX_CHUNKS = 6
+        CHUNK_SIZE = 512
+
+        try:
+            token_ids: List[int] = self.multilabel_tokenizer(
+                contract_text,
+                add_special_tokens=False,
+                truncation=False,
+            )["input_ids"]
+
+            effective = CHUNK_SIZE - 2
+            raw_chunks = [
+                token_ids[i: i + effective]
+                for i in range(0, max(1, len(token_ids)), effective)
+            ]
+            raw_chunks = raw_chunks[:MAX_CHUNKS]
+
+            cls_id = self.multilabel_tokenizer.cls_token_id or 101
+            sep_id = self.multilabel_tokenizer.sep_token_id or 102
+            pad_id = self.multilabel_tokenizer.pad_token_id or 0
+
+            input_ids_list = []
+            attn_mask_list = []
+            for chunk in raw_chunks:
+                ids = [cls_id] + chunk + [sep_id]
+                mask = [1] * len(ids)
+                pad_len = CHUNK_SIZE - len(ids)
+                ids += [pad_id] * pad_len
+                mask += [0] * pad_len
+                input_ids_list.append(ids)
+                attn_mask_list.append(mask)
+
+            while len(input_ids_list) < MAX_CHUNKS:
+                input_ids_list.append([0] * CHUNK_SIZE)
+                attn_mask_list.append([0] * CHUNK_SIZE)
+
+            dev = self.model.device
+            input_ids_t = torch.tensor([input_ids_list], dtype=torch.long, device=dev)
+            attn_mask_t = torch.tensor([attn_mask_list], dtype=torch.long, device=dev)
+            n_chunks_t = torch.tensor([len(raw_chunks)], dtype=torch.long, device=dev)
+
+            with torch.no_grad():
+                logits = self.multilabel_model(input_ids_t, attn_mask_t, n_chunks_t)
+                probs = torch.sigmoid(logits)[0].cpu().numpy()
+
+            # Apply per-class thresholds from threshold tuning if available
+            if self.multilabel_per_class_thresholds is not None:
+                thresholds = self.multilabel_per_class_thresholds
+            else:
+                thresholds = np.full(len(CUAD_41_CATEGORIES), 0.50)
+
+            return {
+                cat: float(probs[i])
+                for i, cat in enumerate(CUAD_41_CATEGORIES)
+            }, thresholds
+        except Exception as ex:
+            print(f"  [warn] Multilabel document prediction failed: {ex}")
+            return {}, np.full(len(CUAD_41_CATEGORIES), 0.50)
+
     def predict_cuad(self, contract_text: str) -> List[Dict[str, Any]]:
         """
         Extract and classify all clauses from a contract.
@@ -1083,6 +1243,22 @@ class LexiCacheModel:
         print("LEXICACHE MULTI-CLAUSE EXTRACTION")
         print(f"{'='*85}")
         print(f"Contract length: {len(contract_text)} characters")
+
+        # Document-level clause presence probabilities from the fine-tuned multilabel model.
+        # Used as a prior to boost/suppress segment-level confidence:
+        #   - If document-level says a type is present   → boost segment confidence (+0.10)
+        #   - If document-level says a type is absent    → penalise segment confidence (-0.08)
+        doc_probs: Dict[str, float] = {}
+        ml_thresholds: np.ndarray = np.full(len(CUAD_41_CATEGORIES), 0.50)
+        if self.multilabel_model is not None:
+            result = self._predict_document_labels(contract_text)
+            if isinstance(result, tuple):
+                doc_probs, ml_thresholds = result
+            else:
+                doc_probs = result
+            if doc_probs:
+                present = [c for c, p in doc_probs.items() if p >= float(ml_thresholds[CUAD_41_CATEGORIES.index(c)])]
+                print(f"  Multilabel prior: {len(present)}/41 clause types predicted present")
 
         segments = self._segment_contract(contract_text)
         print(f"Found {len(segments)} potential clause segments after segmentation")
@@ -1101,6 +1277,23 @@ class LexiCacheModel:
             )
 
             type_key = classification['clause_type']
+            conf = classification['confidence']
+
+            # Apply document-level prior to modulate segment confidence.
+            # Only adjust named (non-Unknown) predictions with a doc-level signal.
+            if type_key != 'Unknown clause' and type_key in doc_probs:
+                doc_prob = doc_probs[type_key]
+                cat_idx = CUAD_41_CATEGORIES.index(type_key)
+                doc_threshold = float(ml_thresholds[cat_idx])
+                if doc_prob >= doc_threshold:
+                    # Document model agrees this type is present — boost confidence
+                    conf = min(0.97, conf + 0.10)
+                    classification['source'] = classification.get('source', '') + '+doc_boost'
+                else:
+                    # Document model says this type is absent — penalise confidence
+                    conf = max(0.0, conf - 0.08)
+                    classification['source'] = classification.get('source', '') + '+doc_penalty'
+                classification['confidence'] = round(conf, 4)
 
             exact_slice = contract_text[seg['start_idx']:seg['end_idx']]
             span_text = self._normalize_span_text(exact_slice, max_chars=5000)
@@ -1193,13 +1386,26 @@ class LexiCacheModel:
                 cached_embeddings = cached['embeddings']
                 cached_labels = cached['labels']
                 cached_texts = cached['texts']
-                if isinstance(cached_embeddings, list) and len(cached_embeddings) > 0:
+                # Validate cache was built with at least as many examples per type as requested.
+                # If not, discard and re-embed so we pick up the extra support examples.
+                cached_max = int(cached.get('max_seed_per_type', 0))
+                cache_valid = (
+                    isinstance(cached_embeddings, list)
+                    and len(cached_embeddings) > 0
+                    and cached_max >= max_seed_examples_per_type
+                )
+                if cache_valid:
                     self.support_embeddings.extend(cached_embeddings)
                     self.support_labels.extend(cached_labels)
                     self.support_texts.extend(cached_texts)
                     self.support_sources.extend(['seed_train'] * len(cached_labels))
                     print(f"  Loaded {len(cached_embeddings)} CUAD seed examples from cache (instant)")
                     return
+                else:
+                    print(
+                        f"  Cache stale (cached max_per_type={cached_max}, "
+                        f"requested={max_seed_examples_per_type}) — re-embedding"
+                    )
             except Exception as e:
                 print(f"  Cache load failed, re-embedding: {e}")
 
@@ -1274,6 +1480,7 @@ class LexiCacheModel:
                     'labels': all_labels,
                     'texts': all_spans,
                     'type_counts': dict(type_counts),
+                    'max_seed_per_type': max_seed_examples_per_type,
                 }, cache_path)
                 print(f"  Saved CUAD seed cache to {cache_path}")
             except Exception as e:

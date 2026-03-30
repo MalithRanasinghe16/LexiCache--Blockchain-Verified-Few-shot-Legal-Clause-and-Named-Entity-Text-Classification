@@ -1,0 +1,78 @@
+{
+  "timestamp": "2026-03-28T20:25:26.032865+00:00",
+  "description": "Hybrid ablation study: Pure KW vs Pure Neural vs multiple hybrid weights",
+  "test_contracts": 102,
+  "threshold": 0.5,
+  "ablation_results": [
+    {
+      "configuration": "Neural=0.00 / KW=1.00",
+      "neural_weight": 0.0,
+      "kw_weight": 1.0,
+      "macro_f1": 0.1023,
+      "macro_precision": 0.3668,
+      "macro_recall": 0.0697,
+      "micro_f1": 0.1789,
+      "hamming_loss": 0.2898
+    },
+    {
+      "configuration": "Neural=0.30 / KW=0.70",
+      "neural_weight": 0.3,
+      "kw_weight": 0.7,
+      "macro_f1": 0.1023,
+      "macro_precision": 0.3668,
+      "macro_recall": 0.0697,
+      "micro_f1": 0.1789,
+      "hamming_loss": 0.2898
+    },
+    {
+      "configuration": "Neural=0.40 / KW=0.60",
+      "neural_weight": 0.4,
+      "kw_weight": 0.6,
+      "macro_f1": 0.5029,
+      "macro_precision": 0.5981,
+      "macro_recall": 0.4717,
+      "micro_f1": 0.7406,
+      "hamming_loss": 0.1509
+    },
+    {
+      "configuration": "Neural=0.50 / KW=0.50",
+      "neural_weight": 0.5,
+      "kw_weight": 0.5,
+      "macro_f1": 0.5602,
+      "macro_precision": 0.4819,
+      "macro_recall": 0.7286,
+      "micro_f1": 0.7301,
+      "hamming_loss": 0.1994
+    },
+    {
+      "configuration": "Neural=0.60 / KW=0.40",
+      "neural_weight": 0.6,
+      "kw_weight": 0.4,
+      "macro_f1": 0.5552,
+      "macro_precision": 0.4803,
+      "macro_recall": 0.7138,
+      "micro_f1": 0.7363,
+      "hamming_loss": 0.1925
+    },
+    {
+      "configuration": "Neural=0.70 / KW=0.30",
+      "neural_weight": 0.7,
+      "kw_weight": 0.30000000000000004,
+      "macro_f1": 0.5552,
+      "macro_precision": 0.4803,
+      "macro_recall": 0.7138,
+      "micro_f1": 0.7395,
+      "hamming_loss": 0.1894
+    },
+    {
+      "configuration": "Neural=1.00 / KW=0.00",
+      "neural_weight": 1.0,
+      "kw_weight": 0.0,
+      "macro_f1": 0.5552,
+      "macro_precision": 0.4803,
+      "macro_recall": 0.7138,
+      "micro_f1": 0.7395,
+      "hamming_loss": 0.1894
+    }
+  ]
+}

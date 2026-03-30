@@ -31,62 +31,78 @@ DATA_DIR.mkdir(exist_ok=True)
 
 def normalize_text(text: str) -> str:
     """
-    Normalize and preprocess text data.
-    
-    Preprocessing steps:
-    1. Strip leading/trailing whitespace
-    2. Convert to lowercase
-    3. Replace dates with [DATE] token
-    4. Replace multiple spaces with single space
-    
-    Args:
-        text (str): Input text to normalize
-        
-    Returns:
-        str: Normalized text
-        
-    Examples:
-        >>> normalize_text("  Contract dated 01/15/2023  ")
-        'contract dated [DATE]'
-        >>> normalize_text("Signed on December 25, 2022")
-        'signed on [DATE]'
+    Canonical normalization for legal near-duplicate matching.
+    Maximizes cache-hit stability across template variants while preserving
+    enough structure to avoid broad collisions.
     """
     if not text or not isinstance(text, str):
         return ""
-    
-    # Strip whitespace
-    text = text.strip()
-    
-    # Convert to lowercase
-    text = text.lower()
-    
-    # Replace various date formats with [DATE] token
-    # Format: MM/DD/YYYY or DD/MM/YYYY
-    text = re.sub(r'\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b', '[DATE]', text)
-    
-    # Format: Month DD, YYYY (e.g., January 15, 2023)
-    text = re.sub(
-        r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}\b',
-        '[DATE]',
-        text,
-        flags=re.IGNORECASE
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = text.strip().lower()
+
+    # Execution/signature tails are noisy and commonly vary across duplicates.
+    text = re.sub(r"(?m)^\s*(by|name|title|date)\s*:\s*[_\-.\s]*$", " ", text)
+    text = re.sub(r"(?m)^\s*in witness whereof[^\n]*$", " [EXECUTION_BLOCK] ", text)
+
+    # Canonicalize section numbering style differences.
+    text = re.sub(r"(?m)^\s*(article|section|clause)\s+[ivxlcdm\d\.-]+\s*[:\-\.]?", r"\1 [SECTION_ID]", text)
+
+    # Dates
+    text = re.sub(r"\b\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\b", " [DATE] ", text)
+    text = re.sub(r"\b\d{4}[/\-.]\d{1,2}[/\-.]\d{1,2}\b", " [DATE] ", text)
+    text = re.sub(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b", " [DATE] ", text)
+    text = re.sub(r"\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b", " [DATE] ", text)
+
+    # Amounts, percentages, ordinals and numeric variants.
+    text = re.sub(r"\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?", " [AMOUNT] ", text)
+    text = re.sub(r"\b\d+(?:\.\d+)?\s*%\b", " [PERCENT] ", text)
+    text = re.sub(r"\b\d+(?:st|nd|rd|th)\b", " [ORD] ", text)
+
+    number_words = (
+        "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+        "thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+        "thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|"
+        "million|billion|trillion"
     )
-    
-    # Format: DD Month YYYY (e.g., 15 January 2023)
-    text = re.sub(
-        r'\b\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\b',
-        '[DATE]',
-        text,
-        flags=re.IGNORECASE
+    text = re.sub(rf"\b(?:{number_words})\b", " [NUM] ", text)
+    text = re.sub(r"\b(?:one|two|three|four)\s*[- ]\s*(?:half|third|quarter|fifth)s?\b", " [FRACTION] ", text)
+    text = re.sub(r"\b\d+(?:\.\d+)?\b", " [NUM] ", text)
+
+    # Party/entity normalization.
+    entity_suffix = (
+        "inc\\.?|llc|l\\.l\\.c\\.|corp\\.?|corporation|company|co\\.?|"
+        "ltd\\.?|limited|lp|l\\.p\\.|llp|l\\.l\\.p\\."
     )
-    
-    # Format: YYYY-MM-DD (ISO format)
-    text = re.sub(r'\b\d{4}[/\-\.]\d{1,2}[/\-\.]\d{1,2}\b', '[DATE]', text)
-    
-    # Replace multiple spaces with single space
-    text = re.sub(r'\s+', ' ', text)
-    
-    return text.strip()
+    text = re.sub(
+        rf"\b(?:[a-z0-9&'\\.-]+\s+){{0,7}}(?:{entity_suffix})\b",
+        " [PARTY] ",
+        text,
+    )
+    text = re.sub(
+        r"\b(?:licensor|licensee|buyer|seller|provider|customer|consultant|company|party\s+[ab])\b",
+        " [PARTY_ROLE] ",
+        text,
+    )
+
+    # Jurisdictional names
+    states = (
+        "alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|"
+        "florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|"
+        "louisiana|maine|maryland|massachusetts|michigan|minnesota|mississippi|"
+        "missouri|montana|nebraska|nevada|new\\s+hampshire|new\\s+jersey|"
+        "new\\s+mexico|new\\s+york|north\\s+carolina|north\\s+dakota|ohio|"
+        "oklahoma|oregon|pennsylvania|rhode\\s+island|south\\s+carolina|"
+        "south\\s+dakota|tennessee|texas|utah|vermont|virginia|washington|"
+        "west\\s+virginia|wisconsin|wyoming"
+    )
+    text = re.sub(rf"\b(?:{states})\b", " [STATE] ", text)
+
+    # Final cleanup
+    text = re.sub(r"[^\w\s\[\]]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
@@ -276,6 +292,8 @@ def test_normalize_text():
         "Multiple   Spaces    Should    Be    Normalized",
         "UPPERCASE TEXT SHOULD BE LOWERCASE",
         "Agreement executed on 12/31/2022 and 01/01/2023",
+        "Party A agrees to pay Party B the sum of $150,000 within 30 days",
+        "The Company (Inc.) shall deliver the goods within 45 days",
     ]
     
     print("\nTest Cases:")

@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import redis
 
@@ -71,6 +71,65 @@ def _get_redis() -> Optional[redis.Redis]:  # type: ignore[type-arg]
 # Public API
 # ---------------------------------------------------------------------------
 
+def _tokenize_for_fingerprint(normalized_text: str) -> List[str]:
+    stop = {
+        "the", "and", "or", "of", "to", "in", "for", "with", "on", "by", "is", "are",
+        "this", "that", "shall", "will", "be", "as", "at", "it", "an", "a",
+    }
+    return [tok for tok in normalized_text.split() if tok and tok not in stop]
+
+
+def _simhash64(tokens: List[str]) -> int:
+    if not tokens:
+        return 0
+    weights = [0] * 64
+    for tok in tokens:
+        h = int(hashlib.md5(tok.encode("utf-8")).hexdigest(), 16)
+        for i in range(64):
+            bit = (h >> i) & 1
+            weights[i] += 1 if bit else -1
+    out = 0
+    for i, w in enumerate(weights):
+        if w >= 0:
+            out |= (1 << i)
+    return out
+
+
+def _bucket_keys_for_simhash(simhash64: int) -> List[str]:
+    return [
+        f"{(simhash64 >> 0) & 0xFFFF:04x}",
+        f"{(simhash64 >> 16) & 0xFFFF:04x}",
+        f"{(simhash64 >> 32) & 0xFFFF:04x}",
+        f"{(simhash64 >> 48) & 0xFFFF:04x}",
+    ]
+
+
+def _hamming64(a: int, b: int) -> int:
+    return (a ^ b).bit_count()
+
+
+def compute_doc_fingerprints(raw_text: str) -> Dict[str, Any]:
+    """
+    Compute stable exact and near-duplicate fingerprints for a document.
+
+    - primary_hash: strict content hash after canonical token normalization
+    - simhash64/buckets: approximate index keys for near-duplicate retrieval
+    """
+    normalized = normalize_text(raw_text)
+    tokens = _tokenize_for_fingerprint(normalized)
+    stable_text = " ".join(tokens)
+    primary_hash = hashlib.sha256(stable_text.encode("utf-8")).hexdigest()
+    simhash64 = _simhash64(tokens)
+    buckets = _bucket_keys_for_simhash(simhash64)
+    return {
+        "primary_hash": primary_hash,
+        "simhash64": simhash64,
+        "simhash_hex": f"{simhash64:016x}",
+        "buckets": buckets,
+        "token_count": len(tokens),
+        "normalized_text": normalized,
+    }
+
 def compute_doc_hash(raw_text: str) -> str:
     """
     Return a stable SHA-256 hex digest that uniquely identifies a document
@@ -85,8 +144,7 @@ def compute_doc_hash(raw_text: str) -> str:
     inside this function for hashing purposes.  model.predict_cuad always
     receives the original raw text.
     """
-    normalised = normalize_text(raw_text)
-    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+    return str(compute_doc_fingerprints(raw_text)["primary_hash"])
 
 
 def _meta_key(doc_hash: str) -> str:
@@ -579,7 +637,18 @@ def discard_document_data(doc_hash: str) -> bool:
         return False
 
 
-def get_cached_result(doc_hash: str) -> Optional[Dict[str, Any]]:
+def _load_docmeta(client: redis.Redis, doc_hash: str) -> Optional[Dict[str, Any]]:  # type: ignore[type-arg]
+    try:
+        raw = client.get(_meta_key(doc_hash))
+        if not raw:
+            return None
+        meta = json.loads(raw)
+        return meta if isinstance(meta, dict) else None
+    except Exception:
+        return None
+
+
+def get_cached_result(doc_hash: Union[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
     Look up a previously stored analysis result in Redis.
 
@@ -591,36 +660,117 @@ def get_cached_result(doc_hash: str) -> Optional[Dict[str, Any]]:
     if client is None:
         return None
 
-    try:
-        raw = client.get(f"doc:{doc_hash}")
-        if raw is None:
-            print(f"[Redis] Cache miss for doc:{doc_hash[:16]}...")
-            logger.debug("[Redis] Cache miss for doc:%s...", doc_hash[:16])
+    # Backward-compatible strict hash lookup.
+    if isinstance(doc_hash, str):
+        try:
+            raw = client.get(_doc_key(doc_hash))
+            if raw is None:
+                print(f"[Redis] Cache miss for doc:{doc_hash[:16]}...")
+                logger.debug("[Redis] Cache miss for doc:%s...", doc_hash[:16])
+                return None
+
+            data: Dict[str, Any] = json.loads(raw)  # type: ignore[assignment]
+            print(f"[Redis] Cache HIT  for doc:{doc_hash[:16]}... (analyzed_at={data.get('analyzed_at', '?')})")
+            logger.info("[Redis] Cache HIT for doc:%s...", doc_hash[:16])
+            return data
+
+        except json.JSONDecodeError as exc:
+            print(f"[Redis] Corrupt cache entry for doc:{doc_hash[:16]}... — deleting. ({exc})")
+            logger.warning("[Redis] Corrupt cache entry deleted: %s", exc)
+            try:
+                client.delete(_doc_key(doc_hash))
+            except Exception:
+                pass
             return None
 
-        data: Dict[str, Any] = json.loads(raw)  # type: ignore[assignment]
-        print(f"[Redis] Cache HIT  for doc:{doc_hash[:16]}... (analyzed_at={data.get('analyzed_at', '?')})")
-        logger.info("[Redis] Cache HIT for doc:%s...", doc_hash[:16])
-        return data
+        except Exception as exc:
+            print(f"[Redis] get() failed for doc:{doc_hash[:16]}...: {exc}")
+            logger.warning("[Redis] get() failed: %s", exc)
+            return None
 
-    except json.JSONDecodeError as exc:
-        # Corrupt entry — delete it so the next request re-populates cleanly
-        print(f"[Redis] Corrupt cache entry for doc:{doc_hash[:16]}... — deleting. ({exc})")
-        logger.warning("[Redis] Corrupt cache entry deleted: %s", exc)
-        try:
-            client.delete(f"doc:{doc_hash}")
-        except Exception:
-            pass
+    # Near-duplicate path using fingerprint dict.
+    if not isinstance(doc_hash, dict):
         return None
 
+    primary_hash = str(doc_hash.get("primary_hash", "")).strip()
+    simhash64 = int(doc_hash.get("simhash64", 0) or 0)
+    token_count = int(doc_hash.get("token_count", 0) or 0)
+    buckets = doc_hash.get("buckets", [])
+
+    if not primary_hash:
+        return None
+
+    # Exact primary hash first.
+    exact = get_cached_result(primary_hash)
+    if exact is not None:
+        exact["cache_match_type"] = "exact"
+        return exact
+
+    candidate_hashes: Set[str] = set()
+    if isinstance(buckets, list):
+        for b in buckets:
+            try:
+                members = client.smembers(f"docbucket:{b}")
+                candidate_hashes.update(str(h) for h in members)
+            except Exception:
+                continue
+
+    best_hash: Optional[str] = None
+    best_dist = 65
+
+    for cand in candidate_hashes:
+        meta = _load_docmeta(client, cand)
+        if not meta:
+            continue
+
+        cand_sim = int(meta.get("simhash64", 0) or 0)
+        cand_tokens = int(meta.get("token_count", 0) or 0)
+
+        dist = _hamming64(simhash64, cand_sim)
+        if dist > 3:
+            continue
+
+        if token_count > 0 and cand_tokens > 0:
+            ratio = abs(cand_tokens - token_count) / float(max(cand_tokens, token_count))
+            if ratio > 0.12:
+                continue
+
+        if dist < best_dist:
+            best_dist = dist
+            best_hash = cand
+
+    if not best_hash:
+        print(f"[Redis] Near-duplicate miss for doc:{primary_hash[:16]}...")
+        logger.debug("[Redis] Near-duplicate miss for doc:%s...", primary_hash[:16])
+        return None
+
+    try:
+        raw = client.get(_doc_key(best_hash))
+        if raw is None:
+            return None
+        data: Dict[str, Any] = json.loads(raw)  # type: ignore[assignment]
+        data["cache_match_type"] = "near_duplicate"
+        data["cache_hamming_distance"] = best_dist
+        print(
+            f"[Redis] Near-duplicate HIT for doc:{primary_hash[:16]}... "
+            f"via {best_hash[:16]}... (dist={best_dist})"
+        )
+        logger.info(
+            "[Redis] Near-duplicate HIT for doc:%s... via %s... dist=%d",
+            primary_hash[:16],
+            best_hash[:16],
+            best_dist,
+        )
+        return data
+
     except Exception as exc:
-        print(f"[Redis] get() failed for doc:{doc_hash[:16]}...: {exc}")
-        logger.warning("[Redis] get() failed: %s", exc)
+        print(f"[Redis] near-duplicate get() failed for doc:{primary_hash[:16]}...: {exc}")
+        logger.warning("[Redis] near-duplicate get() failed: %s", exc)
         return None
 
 
 def store_result(
-    doc_hash: str,
+    doc_hash: Union[str, Dict[str, Any]],
     clauses: List[Dict[str, Any]],
     page_texts: List[Dict[str, Any]],
     extracted_text: str,
@@ -641,6 +791,25 @@ def store_result(
     if client is None:
         return False
 
+    if isinstance(doc_hash, str):
+        fp = {
+            "primary_hash": doc_hash,
+            "simhash64": 0,
+            "token_count": 0,
+            "buckets": [],
+        }
+    elif isinstance(doc_hash, dict):
+        fp = doc_hash
+    else:
+        return False
+
+    primary_hash = str(fp.get("primary_hash", "")).strip()
+    simhash64 = int(fp.get("simhash64", 0) or 0)
+    token_count = int(fp.get("token_count", 0) or 0)
+    buckets = fp.get("buckets", [])
+    if not primary_hash:
+        return False
+
     try:
         payload: Dict[str, Any] = {
             "clauses": clauses,
@@ -649,19 +818,32 @@ def store_result(
             "file_type": file_type,
             "analyzed_at": datetime.now(timezone.utc).isoformat(),
         }
-        client.set(f"doc:{doc_hash}", json.dumps(payload), ex=CACHE_TTL)
+
+        meta = get_document_meta(primary_hash) or _default_meta("anonymous")
+        meta["simhash64"] = simhash64
+        meta["token_count"] = token_count
+        meta["buckets"] = buckets if isinstance(buckets, list) else []
+
+        client.set(_doc_key(primary_hash), json.dumps(payload), ex=CACHE_TTL)
+        client.set(_meta_key(primary_hash), json.dumps(meta), ex=CACHE_TTL)
+        if isinstance(buckets, list):
+            for bucket in buckets:
+                key = f"docbucket:{bucket}"
+                client.sadd(key, primary_hash)
+                client.expire(key, CACHE_TTL)
+
         print(
-            f"[Redis] Stored  doc:{doc_hash[:16]}... "
+            f"[Redis] Stored  doc:{primary_hash[:16]}... "
             f"(TTL={CACHE_TTL // 86400} days, "
             f"{len(clauses)} clauses)"
         )
         logger.info(
             "[Redis] Stored doc:%s... TTL=%ds clauses=%d",
-            doc_hash[:16], CACHE_TTL, len(clauses),
+            primary_hash[:16], CACHE_TTL, len(clauses),
         )
         return True
 
     except Exception as exc:
-        print(f"[Redis] store() failed for doc:{doc_hash[:16]}...: {exc}")
+        print(f"[Redis] store() failed for doc:{primary_hash[:16]}...: {exc}")
         logger.warning("[Redis] store() failed: %s", exc)
         return False

@@ -4,6 +4,7 @@ import json
 import os
 import time
 from typing import Any, Dict, List, Optional
+import urllib.request
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ from src.deduplication import (
     add_pending_teach,
     can_user_verify,
     clear_pending_teaches_for_user,
+    compute_doc_fingerprints,
     compute_doc_hash,
     create_verification_attempt,
     discard_document_data,
@@ -40,7 +42,66 @@ from src.history_store import (
 # .env example (do not commit real secrets):
 # PRIVATE_KEY=0xyour_wallet_private_key
 # SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/your_project_id
+# CONTRACT_ADDRESS=0xYourDeployedContractAddress
 load_dotenv()
+
+# ABI for LexiCacheVerifier.sol — keeps the backend decoupled from the build artefact
+LEXICACHE_VERIFIER_ABI = [
+    {
+        "inputs": [
+            {"internalType": "string",   "name": "docHash",      "type": "string"},
+            {"internalType": "string[]", "name": "clauseTypes",  "type": "string[]"},
+            {"internalType": "uint256",  "name": "timestamp",    "type": "uint256"},
+            {"internalType": "string",   "name": "analysisHash", "type": "string"},
+            {"internalType": "string",   "name": "cid",          "type": "string"},
+        ],
+        "name": "storeVerification",
+        "outputs": [{"internalType": "uint256", "name": "recordId", "type": "uint256"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "string", "name": "analysisHash", "type": "string"}],
+        "name": "isLogged",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "recordId", "type": "uint256"}],
+        "name": "getVerification",
+        "outputs": [
+            {"internalType": "string",   "name": "docHash",      "type": "string"},
+            {"internalType": "string[]", "name": "clauseTypes",  "type": "string[]"},
+            {"internalType": "uint256",  "name": "timestamp",    "type": "uint256"},
+            {"internalType": "string",   "name": "analysisHash", "type": "string"},
+            {"internalType": "string",   "name": "cid",          "type": "string"},
+            {"internalType": "address",  "name": "verifier",     "type": "address"},
+        ],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "totalRecords",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True,  "internalType": "uint256", "name": "recordId",     "type": "uint256"},
+            {"indexed": False, "internalType": "string",  "name": "docHash",      "type": "string"},
+            {"indexed": True,  "internalType": "address", "name": "verifier",     "type": "address"},
+            {"indexed": False, "internalType": "uint256", "name": "timestamp",    "type": "uint256"},
+            {"indexed": False, "internalType": "string",  "name": "analysisHash", "type": "string"},
+            {"indexed": False, "internalType": "string",  "name": "cid",          "type": "string"},
+        ],
+        "name": "VerificationStored",
+        "type": "event",
+    },
+]
 
 app = FastAPI(
     title="LexiCache API",
@@ -57,7 +118,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = LexiCacheModel()
+model = LexiCacheModel(use_multilabel=True, kw_weight=0.35, model_weight=0.65)
 
 class TextRequest(BaseModel):
     text: str
@@ -160,10 +221,73 @@ def _apply_pending_teaches_to_results(
     return patched
 
 
+def _pin_to_ipfs(
+    doc_hash: str,
+    analysis_hash: str,
+    clause_types: List[str],
+    clause_count: int,
+    unknown_count: int,
+    verified_at: str,
+) -> str:
+    """
+    Pin a privacy-preserving analysis summary to IPFS via Pinata.
+
+    Only metadata is pinned — no document text, no PII.
+    Returns the IPFS CID (Content Identifier) on success, or empty
+    string if Pinata is unavailable (non-fatal — verification continues).
+
+    The CID creates a two-part proof:
+      - analysisHash (on-chain)  → proves WHAT was found (tamper-proof)
+      - CID (on-chain + IPFS)    → proves the full analysis is retrievable
+    """
+    pinata_jwt = (os.getenv("PINATA_JWT") or "").strip()
+    if not pinata_jwt:
+        print("[IPFS] PINATA_JWT not set — skipping IPFS pin.")
+        return ""
+
+    # Build the analysis summary — no raw text, no PII
+    payload = {
+        "pinataContent": {
+            "doc_hash":     doc_hash,
+            "analysis_hash": analysis_hash,
+            "clause_types": clause_types,
+            "clause_count": clause_count,
+            "unknown_count": unknown_count,
+            "verified_at":  verified_at,
+            "system":       "LexiCache v0.1.0",
+        },
+        "pinataMetadata": {
+            "name": f"lexicache-{doc_hash[:16]}",
+        },
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+    req  = urllib.request.Request(
+        "https://api.pinata.cloud/pinning/pinJSONToIPFS",
+        data    = body,
+        headers = {
+            "Content-Type":  "application/json",
+            "Authorization": f"Bearer {pinata_jwt}",
+        },
+        method = "POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            cid = result.get("IpfsHash", "")
+            print(f"[IPFS] Pinned analysis → CID: {cid}")
+            return cid
+    except Exception as exc:
+        print(f"[IPFS] Pin failed (non-fatal): {exc}")
+        return ""
+
+
 def _send_sepolia_verification_tx(
     doc_hash: str,
     clause_types: List[str],
     geo_hash: Optional[str] = None,
+    cid: str = "",
 ) -> Dict[str, Any]:
     try:
         from web3 import Web3
@@ -175,6 +299,9 @@ def _send_sepolia_verification_tx(
 
     rpc_url = (os.getenv("SEPOLIA_RPC_URL") or "").strip()
     private_key = (os.getenv("PRIVATE_KEY") or "").strip()
+    contract_address = (
+        os.getenv("CONTRACT_ADDRESS") or "0x9B29820FEc9B0497b91175205C454FB06c576777"
+    ).strip()
 
     if not rpc_url:
         raise RuntimeError("SEPOLIA_RPC_URL is not set in .env")
@@ -190,26 +317,34 @@ def _send_sepolia_verification_tx(
     if chain_id != 11155111:
         raise RuntimeError(f"Connected chain_id={chain_id}, expected Sepolia (11155111)")
 
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(contract_address),
+        abi=LEXICACHE_VERIFIER_ABI,
+    )
+
+    # Build analysis hash: deterministic digest of doc_hash + sorted clause types + geo
     payload_seed = doc_hash + json.dumps(clause_types, sort_keys=True, ensure_ascii=False)
     if geo_hash:
         payload_seed += geo_hash
-    data_hex = "0x" + hashlib.sha256(payload_seed.encode("utf-8")).hexdigest()
+    analysis_hash = hashlib.sha256(payload_seed.encode("utf-8")).hexdigest()
+    timestamp = int(time.time())
 
     nonce = w3.eth.get_transaction_count(account.address)
-    tx_for_estimate = {
+
+    # ABI-encode and send to the deployed LexiCacheVerifier contract.
+    # The contract's idempotency guard will revert if analysisHash was already logged.
+    tx = contract.functions.storeVerification(
+        doc_hash,
+        clause_types,
+        timestamp,
+        analysis_hash,
+        cid,
+    ).build_transaction({
         "from": account.address,
-        "to": "0x0000000000000000000000000000000000000000",
-        "value": 0,
-        "data": data_hex,
         "nonce": nonce,
         "chainId": 11155111,
-    }
-    gas_estimate = w3.eth.estimate_gas(tx_for_estimate)
-    tx = {
-        **tx_for_estimate,
-        "gas": gas_estimate,
         "gasPrice": w3.eth.gas_price,
-    }
+    })
 
     signed = account.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
@@ -350,13 +485,14 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
         file_type = "pdf" if is_pdf else "docx"
 
         # ── Step 2: Compute content hash & check Redis cache ─────────────────
-        doc_hash = compute_doc_hash(text)
+        fingerprints = compute_doc_fingerprints(text)
+        doc_hash = str(fingerprints.get("primary_hash", "")) or compute_doc_hash(text)
         print(f"[upload-file] doc_hash={doc_hash[:16]}... file={file.filename!r} ({len(text)} chars)")
 
         register_upload(doc_hash, user_id)
         durable_history = _get_effective_verification_history(doc_hash)
         seed_verification_baseline(doc_hash, user_id, durable_history)
-        cached = get_cached_result(doc_hash)
+        cached = get_cached_result(fingerprints)
         if cached is not None:
             # Cache HIT — rebuild the full response from stored data and return
             # immediately.  The stored page_texts and extracted_text are used
@@ -410,7 +546,7 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
 
         # ── Step 4: Persist result to Redis (non-fatal on failure) ───────────
         store_result(
-            doc_hash=doc_hash,
+            doc_hash=fingerprints,
             clauses=result,
             page_texts=page_texts,
             extracted_text=text,
@@ -633,17 +769,31 @@ async def verify_document(request: VerifyRequest):
             if c.get("clause_type")
         })
         analysis_hash = _sha256_json(cached)
+        verified_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         print(f"Sending tx for doc {request.doc_hash}")
 
         geo_audit = _build_geo_audit_payload(request.geolocation)
         geo_hash = geo_audit.get("geo_hash")
         geo_summary = geo_audit.get("geo_summary")
 
+        # Step 1 — Pin analysis summary to IPFS (non-fatal if Pinata unavailable).
+        # CID links the on-chain hash to a retrievable off-chain analysis record.
+        cid = _pin_to_ipfs(
+            doc_hash=request.doc_hash,
+            analysis_hash=analysis_hash,
+            clause_types=clause_types,
+            clause_count=len(clauses),
+            unknown_count=unknown_count,
+            verified_at=verified_at_iso,
+        )
+
+        # Step 2 — Write immutable proof to Sepolia with the CID embedded.
         try:
             tx_result = _send_sepolia_verification_tx(
                 doc_hash=request.doc_hash,
                 clause_types=clause_types,
                 geo_hash=geo_hash,
+                cid=cid,
             )
         except Exception as tx_exc:
             error_text = str(tx_exc)
@@ -658,7 +808,6 @@ async def verify_document(request: VerifyRequest):
 
         existing_history = _get_effective_verification_history(request.doc_hash)
         attempt_count = len(existing_history) + 1
-        verified_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         history_entry = {
             "attempt": attempt_count,
             "date": verified_at_iso,
@@ -666,6 +815,8 @@ async def verify_document(request: VerifyRequest):
             "clause_summary": json.dumps(clause_types, ensure_ascii=False),
             "geo_hash": geo_hash,
             "geo_summary": geo_summary,
+            "ipfs_cid": cid,
+            "ipfs_url": f"https://gateway.pinata.cloud/ipfs/{cid}" if cid else None,
         }
         if not push_history_entry(request.doc_hash, history_entry):
             raise HTTPException(
@@ -696,6 +847,8 @@ async def verify_document(request: VerifyRequest):
             "status": "verified",
             "tx_hash": tx_result["tx_hash"],
             "explorer_link": tx_result["explorer_link"],
+            "ipfs_cid": cid,
+            "ipfs_url": f"https://gateway.pinata.cloud/ipfs/{cid}" if cid else None,
             "history": history,
             "message": "Document verified on Sepolia testnet.",
             "record": attempt,

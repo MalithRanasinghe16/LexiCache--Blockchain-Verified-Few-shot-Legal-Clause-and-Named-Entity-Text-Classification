@@ -7,8 +7,20 @@ contract LexiCacheVerifier {
         string[] clauseTypes;
         uint256 timestamp;
         string analysisHash;
+        string cid;          // IPFS Content Identifier for the pinned analysis JSON
         address verifier;
     }
+
+    // Idempotency guard: maps keccak256(analysisHash) → whether it has been logged.
+    //
+    // Key insight: the mapping is keyed on the ANALYSIS snapshot, not the document.
+    // - Same document verified again after new teaching → different analysisHash → ALLOWED
+    // - Same analysis snapshot submitted twice (no new teaching) → REVERTS
+    // - Two users independently produce the same final analysis → second REVERTS
+    //
+    // This allows multiple on-chain records per document (one per teach cycle)
+    // while preventing duplicate records within the same analysis state.
+    mapping(bytes32 => bool) public logged;
 
     VerificationRecord[] private records;
 
@@ -17,27 +29,41 @@ contract LexiCacheVerifier {
         string docHash,
         address indexed verifier,
         uint256 timestamp,
-        string analysisHash
+        string analysisHash,
+        string cid
     );
 
     function storeVerification(
         string calldata docHash,
         string[] calldata clauseTypes,
         uint256 timestamp,
-        string calldata analysisHash
+        string calldata analysisHash,
+        string calldata cid
     ) external returns (uint256 recordId) {
+        bytes32 hashKey = keccak256(abi.encodePacked(analysisHash));
+
+        // Idempotency check — revert if this exact analysis snapshot was already verified.
+        // Allows the same document to be verified multiple times as users teach unknown
+        // clauses (each teach cycle produces a new analysisHash). Blocks re-verification
+        // when nothing new has been contributed (same analysisHash = same knowledge state).
+        require(!logged[hashKey], "LexiCache: analysis already verified on-chain");
+
+        // Mark logged before the storage write (checks-effects-interactions pattern).
+        logged[hashKey] = true;
+
         records.push(
             VerificationRecord({
                 docHash: docHash,
                 clauseTypes: clauseTypes,
                 timestamp: timestamp,
                 analysisHash: analysisHash,
+                cid: cid,
                 verifier: msg.sender
             })
         );
 
         recordId = records.length - 1;
-        emit VerificationStored(recordId, docHash, msg.sender, timestamp, analysisHash);
+        emit VerificationStored(recordId, docHash, msg.sender, timestamp, analysisHash, cid);
     }
 
     function getVerification(uint256 recordId)
@@ -48,11 +74,17 @@ contract LexiCacheVerifier {
             string[] memory clauseTypes,
             uint256 timestamp,
             string memory analysisHash,
+            string memory cid,
             address verifier
         )
     {
         VerificationRecord storage r = records[recordId];
-        return (r.docHash, r.clauseTypes, r.timestamp, r.analysisHash, r.verifier);
+        return (r.docHash, r.clauseTypes, r.timestamp, r.analysisHash, r.cid, r.verifier);
+    }
+
+    /// @notice Check whether an analysis snapshot has already been logged on-chain.
+    function isLogged(string calldata analysisHash) external view returns (bool) {
+        return logged[keccak256(abi.encodePacked(analysisHash))];
     }
 
     function totalRecords() external view returns (uint256) {

@@ -34,7 +34,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
 
 # ---------------------------------------------------------------------------
 # CUAD 41 canonical categories (must match evaluate_cuad_document_level.py)
@@ -384,17 +384,14 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def evaluate_split(
+def collect_probs(
     model: LegalBERTMultiLabel,
     loader: DataLoader,
     device: torch.device,
-    threshold: float = 0.5,
-) -> Dict[str, float]:
-    """Evaluate on a DataLoader; return macro/micro F1."""
-    from sklearn.metrics import f1_score, precision_score, recall_score
-
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Collect sigmoid probabilities and ground-truth labels over a DataLoader."""
     model.eval()
-    all_preds: List[np.ndarray] = []
+    all_probs: List[np.ndarray] = []
     all_labels: List[np.ndarray] = []
 
     for batch in tqdm(loader, desc="  eval", leave=False):
@@ -405,13 +402,33 @@ def evaluate_split(
 
         logits = model(ids, mask, n_chunks)
         probs = torch.sigmoid(logits).cpu().numpy()
-        preds = (probs >= threshold).astype(int)
 
-        all_preds.append(preds)
+        all_probs.append(probs)
         all_labels.append(labels)
 
-    Y_pred = np.vstack(all_preds)
-    Y_true = np.vstack(all_labels)
+    return np.vstack(all_probs), np.vstack(all_labels)
+
+
+def evaluate_split(
+    model: LegalBERTMultiLabel,
+    loader: DataLoader,
+    device: torch.device,
+    threshold: float = 0.5,
+    per_class_thresholds: Optional[np.ndarray] = None,
+) -> Dict[str, float]:
+    """Evaluate on a DataLoader; return macro/micro F1.
+
+    If per_class_thresholds is provided (shape [num_labels]), each label uses
+    its own threshold instead of the global one.
+    """
+    from sklearn.metrics import f1_score, precision_score, recall_score
+
+    Y_prob, Y_true = collect_probs(model, loader, device)
+
+    if per_class_thresholds is not None:
+        Y_pred = (Y_prob >= per_class_thresholds[None, :]).astype(int)
+    else:
+        Y_pred = (Y_prob >= threshold).astype(int)
 
     macro_f1 = f1_score(Y_true, Y_pred, average="macro", zero_division=0)
     micro_f1 = f1_score(Y_true, Y_pred, average="micro", zero_division=0)
@@ -424,6 +441,37 @@ def evaluate_split(
         "macro_precision": round(float(macro_p), 4),
         "macro_recall": round(float(macro_r), 4),
     }
+
+
+def tune_per_class_thresholds(
+    Y_prob: np.ndarray,
+    Y_true: np.ndarray,
+    candidates: Optional[List[float]] = None,
+) -> np.ndarray:
+    """Find the F1-optimal threshold for each class independently.
+
+    Sweeps candidate thresholds and picks the one that maximises per-class F1.
+    Returns an array of shape [num_labels] with the best threshold per class.
+    """
+    from sklearn.metrics import f1_score
+
+    if candidates is None:
+        candidates = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50,
+                      0.55, 0.60, 0.65, 0.70, 0.75, 0.80]
+
+    num_labels = Y_prob.shape[1]
+    best_thresholds = np.full(num_labels, 0.50)
+
+    for j in range(num_labels):
+        best_f1 = -1.0
+        for t in candidates:
+            preds = (Y_prob[:, j] >= t).astype(int)
+            f1 = f1_score(Y_true[:, j], preds, zero_division=0)
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thresholds[j] = t
+
+    return best_thresholds
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +490,7 @@ def parse_args() -> argparse.Namespace:
                    help="Directory to save fine-tuned model")
     p.add_argument("--encoder-name", default="nlpaueb/legal-bert-base-uncased",
                    help="HuggingFace encoder model name")
-    p.add_argument("--epochs", type=int, default=8,
+    p.add_argument("--epochs", type=int, default=15,
                    help="Number of training epochs")
     p.add_argument("--batch-size", type=int, default=2,
                    help="Training batch size (reduce if OOM, default 2)")
@@ -465,6 +513,13 @@ def parse_args() -> argparse.Namespace:
                    help="Freeze encoder for first N epochs (train head only)")
     p.add_argument("--resume-from", type=str, default=None,
                    help="Path to a checkpoint .pth file to resume training from")
+    p.add_argument("--lr-schedule", choices=["linear", "cosine"], default="cosine",
+                   help="LR schedule after warmup: cosine decay (default) or linear decay")
+    p.add_argument("--label-smoothing", type=float, default=0.05,
+                   help="Label smoothing for BCE loss — targets become [s/2, 1-s/2]. "
+                        "Reduces overconfidence on rare classes (default 0.05)")
+    p.add_argument("--tune-thresholds", action="store_true", default=True,
+                   help="After training, sweep per-class thresholds on val set to maximise F1")
     return p.parse_args()
 
 
@@ -523,7 +578,24 @@ def main() -> None:
 
     # Positive class weights for imbalanced labels
     pos_weight = compute_pos_weights(train_ds).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    # Label smoothing: convert hard {0,1} targets to {s/2, 1-s/2} to reduce
+    # overconfidence on rare classes and improve calibration.
+    # Applied by wrapping BCEWithLogitsLoss with a pre-processing step.
+    label_smoothing = args.label_smoothing
+
+    class SmoothedBCELoss(nn.Module):
+        def __init__(self, pos_weight: torch.Tensor, smoothing: float) -> None:
+            super().__init__()
+            self.loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+            self.smoothing = smoothing
+
+        def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+            if self.smoothing > 0:
+                targets = targets * (1.0 - self.smoothing) + 0.5 * self.smoothing
+            return self.loss_fn(logits, targets)
+
+    criterion = SmoothedBCELoss(pos_weight, label_smoothing)
 
     start_epoch = 1
     if args.resume_from:
@@ -552,11 +624,18 @@ def main() -> None:
 
     total_steps = len(train_loader) * args.epochs
     warmup_steps = int(args.warmup_ratio * total_steps)
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=warmup_steps,
-        num_training_steps=total_steps,
-    )
+    if args.lr_schedule == "cosine":
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
+    else:
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -614,6 +693,38 @@ def main() -> None:
     # Save final model and config
     torch.save(model.state_dict(), output_dir / "final_model.pth")
 
+    # Per-class threshold tuning on validation set using best model weights
+    per_class_thresholds_list: Optional[List[float]] = None
+    if args.tune_thresholds:
+        print("\n[Threshold Tuning] Loading best model and sweeping per-class thresholds on val set ...")
+        best_state = torch.load(output_dir / "best_model.pth", map_location=device)
+        model.load_state_dict(best_state)
+        Y_prob_val, Y_true_val = collect_probs(model, val_loader, device)
+        per_class_thresholds = tune_per_class_thresholds(Y_prob_val, Y_true_val)
+        per_class_thresholds_list = per_class_thresholds.tolist()
+
+        # Evaluate with tuned thresholds vs global threshold
+        from sklearn.metrics import f1_score
+        Y_pred_global = (Y_prob_val >= args.threshold).astype(int)
+        Y_pred_tuned = (Y_prob_val >= per_class_thresholds[None, :]).astype(int)
+        f1_global = f1_score(Y_true_val, Y_pred_global, average="macro", zero_division=0)
+        f1_tuned = f1_score(Y_true_val, Y_pred_tuned, average="macro", zero_division=0)
+        print(f"  Global threshold ({args.threshold:.2f}) Macro F1 = {f1_global:.4f}")
+        print(f"  Per-class tuned thresholds  Macro F1 = {f1_tuned:.4f}  (+{f1_tuned - f1_global:+.4f})")
+
+        per_class_info = {
+            cat: round(float(t), 3)
+            for cat, t in zip(CUAD_41_CATEGORIES, per_class_thresholds)
+        }
+        print("  Per-class optimal thresholds:")
+        for cat, t in per_class_info.items():
+            print(f"    {cat}: {t}")
+
+        np.save(str(output_dir / "per_class_thresholds.npy"), per_class_thresholds)
+        with open(output_dir / "per_class_thresholds.json", "w") as f:
+            json.dump(per_class_info, f, indent=2)
+        print(f"  Saved: {output_dir / 'per_class_thresholds.json'}")
+
     config = {
         "encoder_name": args.encoder_name,
         "num_labels": NUM_LABELS,
@@ -622,6 +733,9 @@ def main() -> None:
         "chunk_size": args.chunk_size,
         "dropout": args.dropout,
         "threshold": args.threshold,
+        "lr_schedule": args.lr_schedule,
+        "label_smoothing": args.label_smoothing,
+        "per_class_thresholds": per_class_thresholds_list,
         "best_epoch": best_epoch,
         "best_macro_f1": best_macro_f1,
         "training_history": history,

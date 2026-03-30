@@ -77,3 +77,46 @@ class PrototypicalNetwork(nn.Module):
         preds = torch.argmin(dists, dim=-1)
         probs = F.softmax(-dists, dim=-1)
         return preds, probs
+
+class LegalBERTMultiLabel(nn.Module):
+    """
+    Legal-BERT encoder with a multi-label classification head.
+    """
+    def __init__(
+        self,
+        encoder_name: str = "nlpaueb/legal-bert-base-uncased",
+        num_labels: int = 41,
+        dropout: float = 0.1,
+    ) -> None:
+        super().__init__()
+        self.encoder = AutoModel.from_pretrained(encoder_name)
+        
+        if hasattr(self.encoder, "gradient_checkpointing_enable"):
+            self.encoder.gradient_checkpointing_enable()
+            
+        hidden = self.encoder.config.hidden_size
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden, num_labels)
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        n_chunks: torch.Tensor,
+    ) -> torch.Tensor:
+        B, C, L = input_ids.shape
+        ids_flat = input_ids.view(B * C, L)
+        mask_flat = attention_mask.view(B * C, L)
+
+        out = self.encoder(input_ids=ids_flat, attention_mask=mask_flat)
+        cls_flat = out.last_hidden_state[:, 0, :]
+        cls_3d = cls_flat.view(B, C, -1)
+
+        chunk_mask = torch.zeros(B, C, device=input_ids.device)
+        for b in range(B):
+            chunk_mask[b, : int(n_chunks[b].item())] = 1.0
+        chunk_mask = chunk_mask.unsqueeze(-1)
+
+        pooled = (cls_3d * chunk_mask).sum(dim=1) / chunk_mask.sum(dim=1).clamp(min=1e-6)
+        pooled = self.dropout(pooled)
+        return self.classifier(pooled)

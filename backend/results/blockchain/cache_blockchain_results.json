@@ -1,0 +1,29 @@
+{
+  "cache_hit_rate_percent": 80.0,
+  "exact_hits": 554,
+  "near_duplicate_hits": 246,
+  "variant_misses": 0,
+  "avg_cached_latency_ms": 25.32,
+  "avg_full_inference_latency_ms": 3330.93,
+  "latency_savings_percent": 99.24,
+  "blockchain_sample_size": 5,
+  "blockchain_txs_confirmed": 0,
+  "blockchain_metrics_source": "preserved",
+  "avg_gas_used_units": 399509,
+  "avg_gas_price_gwei": 1e-06,
+  "avg_gas_cost_usd": 0.0012,
+  "avg_verification_latency_ms": 4973.61,
+  "gas_savings_percent": 80.0,
+  "tamper_detection_success_rate": 100.0,
+  "eth_price_usd_used": 3000.0,
+  "sample_tx_hashes": [
+    "ae9d46f993943d745e6d03ca3f1a6ee83f3c746c68cc1af0d3bef549c1af9cff",
+    "e2f3bd48e2ce4baa9bd87e7aade1b28ca8a265a4e8b6eb6a0086a41270e6efc9",
+    "f60cc341d5044eadc03873a3a093ebf4f231d6f5f95deac149bea32b94b7cf9f",
+    "622b7e038161726a7135920afb9c0195936425c7df8bdb6b72fedeb80f7e3d76",
+    "4e8a2dbbf41acef0c0946fd05450d9054e737dd0cd121f6757f2527a5b7d40b5"
+  ],
+  "total_runs": 1000,
+  "originals_seeded": 200,
+  "variants_tested": 800
+}
