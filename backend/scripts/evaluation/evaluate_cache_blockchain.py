@@ -285,12 +285,8 @@ latencies_full:  List[float] = []
 bc_results:      List[Dict]  = []   # real blockchain tx metrics from sample
 
 
-# ─────────────────────────────────────────────────────────────────────
-# PHASE 1 — Seed cache with all 200 originals
-#   For the first BLOCKCHAIN_SAMPLE_SIZE originals, also send a real
-#   Sepolia transaction and record gas + latency from the receipt.
-# ─────────────────────────────────────────────────────────────────────
-print(f"── Phase 1: Seeding {N_ORIGINALS} unique originals into cache ──")
+# Phase 1: seed cache with originals
+print(f"Phase 1: Seeding {N_ORIGINALS} unique originals into cache")
 for j, contract_doc in enumerate(originals):
     text         = contract_doc["text"]
     fingerprints = compute_doc_fingerprints(text)
@@ -309,7 +305,7 @@ for j, contract_doc in enumerate(originals):
     )
     latencies_full.append(inf_ms)
 
-    # ── Real blockchain transaction for sample documents ─────────────
+    # Send real blockchain tx for sample documents
     if j < BLOCKCHAIN_SAMPLE_SIZE and w3 is not None:
         clause_types  = sorted({
             str(c.get("clause_type", ""))
@@ -329,11 +325,8 @@ for j, contract_doc in enumerate(originals):
 print(f"\nPhase 1 complete. {N_ORIGINALS} originals seeded.  {len(bc_results)} blockchain txs confirmed.\n")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# PHASE 2 — Test 800 known variants against seeded cache
-#   Cache hits produce NO blockchain transaction — this is the gas saving.
-# ─────────────────────────────────────────────────────────────────────
-print(f"── Phase 2: Testing {N_VARIANTS} variants against cache ──")
+# Phase 2: test variants against cache
+print(f"Phase 2: Testing {N_VARIANTS} variants against cache")
 for i, contract_doc in enumerate(variants):
     text         = contract_doc["text"]
     fingerprints = compute_doc_fingerprints(text)
@@ -352,7 +345,7 @@ for i, contract_doc in enumerate(variants):
         else:
             exact_hits += 1
 
-        # Cache HIT — no blockchain tx needed.  Gas saved = avg_gas_used per tx.
+        # Cache hit: no blockchain transaction needed
         print(f"  [{i+1:4d}] HIT  {latency:7.1f} ms  ({match_type})  dup_of={contract_doc['is_duplicate_of']}")
     else:
         cache_misses += 1
@@ -448,7 +441,7 @@ print(f"    Variant misses     : {cache_misses}")
 print(f"  Avg Cached Latency   : {avg_cache_lat:.1f} ms")
 print(f"  Avg Full Latency     : {avg_full_lat:.1f} ms")
 print(f"  Latency Speedup      : {speedup_str}")
-print(f"  ── Blockchain (N={len(bc_results)} real txs, source={bc_metrics_source}) ──")
+print(f"  Blockchain (N={len(bc_results)} real txs, source={bc_metrics_source})")
 print(f"  Avg Gas Used         : {avg_gas_used:,.0f} units")
 print(f"  Avg Gas Price        : {avg_gas_gwei:.6f} Gwei")
 print(f"  Avg TX Cost          : ${avg_cost_usd:.4f} USD")

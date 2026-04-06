@@ -46,13 +46,9 @@ from sklearn.metrics import (
 from sklearn.preprocessing import MultiLabelBinarizer
 
 from src.ml_model import LexiCacheModel
-
-
-# ---------------------------------------------------------------------------
 # Official CUAD 41 clause categories
 # Casing matches the ground-truth annotation files (Title Case as stored in
 # the processed JSON files under data/processed/cuad/).
-# ---------------------------------------------------------------------------
 CUAD_41_CATEGORIES: List[str] = [
     "Document Name",
     "Parties",
@@ -96,13 +92,9 @@ CUAD_41_CATEGORIES: List[str] = [
     "Third Party Beneficiary",
     "Indemnification",
 ]
-
-
-# ---------------------------------------------------------------------------
 # Explicit alias map: model type names → CUAD 41 canonical names
 # Used BEFORE fuzzy matching to handle known systematic mismatches between
 # the model's CLAUSE_KEYWORDS_WEIGHTED taxonomy and CUAD 41 categories.
-# ---------------------------------------------------------------------------
 MODEL_TYPE_ALIASES: Dict[str, Optional[str]] = {
     # Model uses generic "Termination"; CUAD 41 has "Termination For Convenience"
     "termination": "Termination For Convenience",
@@ -142,12 +134,7 @@ MODEL_TYPE_ALIASES: Dict[str, Optional[str]] = {
     "counterparts": None,
     "assignment": None,
 }
-
-
-# ---------------------------------------------------------------------------
 # Type-name mapping helpers
-# ---------------------------------------------------------------------------
-
 def build_cuad_lower_map(cuad_categories: List[str]) -> Dict[str, str]:
     """Return a {lowercase_name: canonical_name} lookup for CUAD categories."""
     return {cat.lower(): cat for cat in cuad_categories}
@@ -213,12 +200,7 @@ def log_type_mapping(mapping_cache: Dict[str, Optional[str]]) -> None:
         for u in sorted(unmapped):
             print(f"    x {u!r}")
     print("-" * 75)
-
-
-# ---------------------------------------------------------------------------
 # Ground-truth extraction
-# ---------------------------------------------------------------------------
-
 def load_contract_json(path: Path) -> Dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -247,12 +229,7 @@ def extract_ground_truth_cuad_types(
         if canonical:
             types.add(canonical)
     return types
-
-
-# ---------------------------------------------------------------------------
 # Prediction extraction
-# ---------------------------------------------------------------------------
-
 def extract_predicted_cuad_types(
     model: LexiCacheModel,
     full_text: str,
@@ -286,12 +263,7 @@ def extract_predicted_cuad_types(
             predicted.add(canonical)
 
     return predicted
-
-
-# ---------------------------------------------------------------------------
 # Top-K accuracy (per-contract recall)
-# ---------------------------------------------------------------------------
-
 def compute_top_k_accuracy(
     ground_truth: List[Set[str]],
     predicted: List[Set[str]],
@@ -342,12 +314,7 @@ def compute_top_k_accuracy(
         }
 
     return {"aggregate": agg, "per_contract": per_contract}
-
-
-# ---------------------------------------------------------------------------
 # Console output helpers
-# ---------------------------------------------------------------------------
-
 def print_summary_table(
     report: Dict,
     macro_p: float,
@@ -396,24 +363,14 @@ def print_summary_table(
     print(f"    Max    : {agg['max']:.4f}")
     print(f"    N      : {agg['n_contracts']} contracts with >=1 GT annotation")
     print("\n" + "=" * W + "\n")
-
-
-# ---------------------------------------------------------------------------
 # Result persistence
-# ---------------------------------------------------------------------------
-
 def save_results_json(path: Path, payload: Dict) -> None:
     """Write full evaluation results to a JSON file (overwrites if exists)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
     print(f"  Full results saved -> {path}")
-
-
-# ---------------------------------------------------------------------------
 # Main evaluation loop
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(

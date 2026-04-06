@@ -1,12 +1,17 @@
 import { Filter } from "lucide-react";
-import { ClauseResult, VerificationAttempt, VerificationState } from "../types";
+import {
+  AnalysisResult,
+  ClauseResult,
+  VerificationAttempt,
+  VerificationState,
+} from "../types";
 import FilterPanel from "./FilterPanel";
 import ClauseList from "./ClauseList";
 import ColorLegend from "./ColorLegend";
 import DocumentSearchPopover from "./DocumentSearchPopover";
 
 type Props = {
-  result: { result: ClauseResult[] };
+  result: AnalysisResult;
   colorMap: Record<string, string>;
   selectedClauseTypes: Set<string>;
   minConfidence: number;
@@ -79,6 +84,9 @@ export default function ResultsSidebar({
   };
 
   const allClauses = result.result ?? [];
+  const cacheMatchType = result.cache_match_type;
+  const cachedAt = result.cached_at;
+  const changedFields = result.changed_fields ?? [];
 
   const clauseTypes = Array.from(new Set(allClauses.map((c) => c.clause_type)));
 
@@ -98,9 +106,56 @@ export default function ResultsSidebar({
 
   const showVerify = verification?.show_verify_button ?? unknownCount > 0;
 
+  const formatCachedAt = (value?: string) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   return (
     <aside className="lg:w-[36%] max-h-screen overflow-y-auto bg-paper px-5 py-6 lg:px-6 lg:py-7">
       <div className="space-y-6">
+        {/* Cache banner */}
+        {cacheMatchType === "exact" && (
+          <section className="rounded-2xl border border-[#c9dff5] bg-[#eef5fd] p-4 text-[#1a4a7a]">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#2563a8]">
+              Loaded from Cache
+            </p>
+            <p className="mt-1 text-sm">
+              This document was already analysed
+              {cachedAt ? ` on ${formatCachedAt(cachedAt)}` : ""}. Results are
+              returned instantly without re-running the model.
+            </p>
+          </section>
+        )}
+
+        {cacheMatchType === "template_variant" && (
+          <section className="rounded-2xl border border-[#ebcfad] bg-[#fff4e7] p-4 text-[#6f4112]">
+            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#8a5a22]">
+              Updated Document Detected
+            </p>
+            <p className="mt-1 text-sm">
+              This document has the same contract structure as one analysed
+              {cachedAt ? ` on ${formatCachedAt(cachedAt)}` : " previously"},
+              but some fields were updated
+              {changedFields.length > 0
+                ? `: ${changedFields.map((f) => f.toLowerCase()).join(", ")}.`
+                : "."}
+            </p>
+            <p className="mt-1 text-xs text-[#855526]">
+              Clause types and confidence scores are from the cached analysis.
+              Verifying will record these changes on the blockchain.
+            </p>
+          </section>
+        )}
+
         {showVerify && !reminderDismissed && (
           <section className="rounded-2xl border border-[#ebcfad] bg-[#fff4e7] p-4 text-[#6f4112] shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#8a5a22]">
@@ -200,6 +255,18 @@ export default function ResultsSidebar({
                           {item.geo_hash || "N/A"}
                         </p>
                       </div>
+
+                      {item.changed_fields &&
+                        item.changed_fields.length > 0 && (
+                          <p className="mt-1 text-xs text-muted">
+                            <span className="font-semibold text-foreground">
+                              Changes recorded:
+                            </span>{" "}
+                            {item.changed_fields
+                              .map((f) => f.toLowerCase())
+                              .join(", ")}
+                          </p>
+                        )}
 
                       <a
                         href={item.blockchain_link}

@@ -35,7 +35,7 @@ class DummyModel:
 
 @pytest.fixture()
 def main_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    # Import main.py with a lightweight model constructor to keep tests fast.
+    # Import main.py with a lightweight model
     monkeypatch.setattr("src.ml_model.LexiCacheModel", DummyModel)
 
     if "main" in sys.modules:
@@ -297,8 +297,7 @@ def test_upload_seeds_verification_baseline_from_durable_history(
             self.filename = "sample.docx"
 
         async def read(self) -> bytes:
-            # Minimal valid DOCX payload builder for this code path is heavy;
-            # we patch Document to avoid parsing.
+            # Patch Document to avoid real DOCX parsing
             return b"dummy"
 
     class DummyDoc:

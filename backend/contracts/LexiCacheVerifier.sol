@@ -10,16 +10,6 @@ contract LexiCacheVerifier {
         string cid;          // IPFS Content Identifier for the pinned analysis JSON
         address verifier;
     }
-
-    // Idempotency guard: maps keccak256(analysisHash) → whether it has been logged.
-    //
-    // Key insight: the mapping is keyed on the ANALYSIS snapshot, not the document.
-    // - Same document verified again after new teaching → different analysisHash → ALLOWED
-    // - Same analysis snapshot submitted twice (no new teaching) → REVERTS
-    // - Two users independently produce the same final analysis → second REVERTS
-    //
-    // This allows multiple on-chain records per document (one per teach cycle)
-    // while preventing duplicate records within the same analysis state.
     mapping(bytes32 => bool) public logged;
 
     VerificationRecord[] private records;

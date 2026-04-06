@@ -23,10 +23,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.gridspec as gridspec
 import numpy as np
-
-# ---------------------------------------------------------------------------
 # Paths
-# ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[2]  # backend/
 RESULTS_DIR = BASE_DIR / "experiments" / "results"
 OUT_DIR = RESULTS_DIR / "eval_report"
@@ -36,10 +33,7 @@ FINETUNED_JSON  = RESULTS_DIR / "cuad_hybrid_finetuned_results.json"
 ABLATION_JSON   = RESULTS_DIR / "cuad_hybrid_ablation_results.json"
 FEWSHOT_JSON    = RESULTS_DIR / "fewshot_teaching" / "fewshot_teaching_results.json"
 FULLSHOT_JSON   = RESULTS_DIR / "cuad_hybrid_fullshot_results.json"
-
-# ---------------------------------------------------------------------------
 # Colour palette
-# ---------------------------------------------------------------------------
 TIER_COLORS = {
     "excellent": "#2ecc71",   # F1 >= 0.70
     "good":      "#f39c12",   # F1 0.45 – 0.70
@@ -65,12 +59,7 @@ plt.rcParams.update({
     "font.family":      "sans-serif",
     "font.size":        10,
 })
-
-
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
-
 def load_json(path: Path) -> Optional[dict]:
     if not path.exists():
         print(f"  [skip] {path.name} not found")
@@ -94,12 +83,7 @@ def save(fig: plt.Figure, name: str) -> None:
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  Saved: {path.relative_to(BASE_DIR)}")
-
-
-# ---------------------------------------------------------------------------
 # Chart 1 — Per-class F1 horizontal bar (sorted)
-# ---------------------------------------------------------------------------
-
 def chart_per_class_f1(data: dict) -> None:
     pcm: Dict[str, dict] = data["per_class_metrics"]
     classes = list(pcm.keys())
@@ -143,12 +127,7 @@ def chart_per_class_f1(data: dict) -> None:
     ax.legend(handles=legend_patches, loc="lower right", fontsize=9, framealpha=0.9)
     fig.tight_layout()
     save(fig, "chart1_per_class_f1.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 2 — Precision vs Recall scatter with F1 iso-curves
-# ---------------------------------------------------------------------------
-
 def chart_precision_recall_scatter(data: dict) -> None:
     pcm = data["per_class_metrics"]
     classes   = list(pcm.keys())
@@ -162,7 +141,7 @@ def chart_precision_recall_scatter(data: dict) -> None:
     # F1 iso-curves
     t = np.linspace(0.01, 1.0, 200)
     for f_target in [0.2, 0.4, 0.6, 0.8]:
-        # F1 = 2PR/(P+R)  → P = F1*R / (2R - F1)
+    # F1 iso-curve formula
         with np.errstate(divide="ignore", invalid="ignore"):
             p_iso = f_target * t / (2 * t - f_target)
         mask = (p_iso >= 0) & (p_iso <= 1)
@@ -214,12 +193,7 @@ def chart_precision_recall_scatter(data: dict) -> None:
     ax.legend(handles=legend_patches, loc="lower left", fontsize=9, framealpha=0.9)
     fig.tight_layout()
     save(fig, "chart2_precision_recall_scatter.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 3 — Ablation study: neural weight vs metrics
-# ---------------------------------------------------------------------------
-
 def chart_ablation(data: dict) -> None:
     results = data["ablation_results"]
     neural_w  = [r["neural_weight"]   for r in results]
@@ -269,12 +243,7 @@ def chart_ablation(data: dict) -> None:
 
     fig.tight_layout()
     save(fig, "chart3_ablation_study.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 4 — Training convergence (loss + F1 per epoch)
-# ---------------------------------------------------------------------------
-
 def chart_training_convergence(data: dict) -> None:
     history = data["config"]["model_config"].get("training_history", [])
     if not history:
@@ -321,12 +290,7 @@ def chart_training_convergence(data: dict) -> None:
 
     fig.tight_layout()
     save(fig, "chart4_training_convergence.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 5 — Per-contract recall distribution
-# ---------------------------------------------------------------------------
-
 def chart_per_contract_recall(data: dict) -> None:
     top_k = data.get("per_contract_top_k", [])
     if not top_k:
@@ -375,12 +339,7 @@ def chart_per_contract_recall(data: dict) -> None:
 
     fig.tight_layout()
     save(fig, "chart5_per_contract_recall.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 6 — Support distribution (class frequency)
-# ---------------------------------------------------------------------------
-
 def chart_support_distribution(data: dict) -> None:
     pcm      = data["per_class_metrics"]
     classes  = list(pcm.keys())
@@ -412,12 +371,7 @@ def chart_support_distribution(data: dict) -> None:
     ax.legend(handles=legend_patches, loc="lower right", fontsize=9)
     fig.tight_layout()
     save(fig, "chart6_support_distribution.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 7 — Few-shot learning curve
-# ---------------------------------------------------------------------------
-
 def chart_fewshot_curve(data: dict) -> None:
     shots_data = data["results_by_shot"]
     shots  = sorted(int(k) for k in shots_data.keys())
@@ -471,12 +425,7 @@ def chart_fewshot_curve(data: dict) -> None:
 
     fig.tight_layout()
     save(fig, "chart7_fewshot_learning_curve.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 8 — Per-class few-shot heatmap
-# ---------------------------------------------------------------------------
-
 def chart_fewshot_heatmap(data: dict) -> None:
     shots_data   = data["results_by_shot"]
     target_types = data["config"]["target_types"]
@@ -526,12 +475,7 @@ def chart_fewshot_heatmap(data: dict) -> None:
 
     fig.tight_layout()
     save(fig, "chart8_fewshot_heatmap.png")
-
-
-# ---------------------------------------------------------------------------
 # Chart 9 — Metrics dashboard: summary tiles
-# ---------------------------------------------------------------------------
-
 def chart_metrics_dashboard(finetuned: dict, ablation: dict, fewshot: dict) -> None:
     agg = finetuned["aggregate_metrics"]
     top_k = finetuned.get("top_k_accuracy", {}).get("aggregate", {})
@@ -594,12 +538,7 @@ def chart_metrics_dashboard(finetuned: dict, ablation: dict, fewshot: dict) -> N
         ax.axis("off")
 
     save(fig, "chart9_metrics_dashboard.png")
-
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     print("=" * 60)
     print("LexiCache Evaluation Report Generator")

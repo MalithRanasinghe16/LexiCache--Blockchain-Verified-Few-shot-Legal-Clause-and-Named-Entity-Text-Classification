@@ -1,17 +1,11 @@
-"""Unit tests for the LexiCache ML pipeline.
-Tests segmentation, heading detection, keyword classification, and merge logic
-without loading the heavy neural model (uses monkey-patching).
-"""
+"""Unit tests for the LexiCache ML pipeline."""
 
 import sys
 import os
 import types
 import pytest  # type: ignore[import]
-
-# ---------------------------------------------------------------------------
-# Minimal stubs so we can import ml_model without torch / sentence-transformers
-# ---------------------------------------------------------------------------
-# Stub `torch`
+# Lightweight stubs so tests can import ml_model quickly
+# Stub torch
 torch_stub = types.ModuleType("torch")
 torch_stub.no_grad = lambda: __import__('contextlib').nullcontext()  # type: ignore[attr-defined]
 torch_stub.load = lambda *a, **kw: {}  # type: ignore[attr-defined]
@@ -27,7 +21,7 @@ torch_stub.nn = torch_nn  # type: ignore[attr-defined]
 sys.modules.setdefault("torch", torch_stub)
 sys.modules.setdefault("torch.nn", torch_nn)
 
-# Stub `src.modeling`
+# Stub src.modeling
 modeling_stub = types.ModuleType("src.modeling")
 class _FakeProto:
     hidden_size = 768
@@ -36,26 +30,22 @@ class _FakeProto:
 modeling_stub.PrototypicalNetwork = _FakeProto  # type: ignore[attr-defined]
 sys.modules.setdefault("src.modeling", modeling_stub)
 
-# Stub `src.data`
+# Stub src.data
 data_stub = types.ModuleType("src.data")
 data_stub.normalize_text = lambda t: t.lower().strip()  # type: ignore[attr-defined]
 sys.modules.setdefault("src.data", data_stub)
 
-# Now import the real module
+# Import the target module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.ml_model import LexiCacheModel, CLAUSE_KEYWORDS_WEIGHTED  # type: ignore[import]
-
-
-# ---------------------------------------------------------------------------
-# Fixture: create a model instance without loading any weights
-# ---------------------------------------------------------------------------
+# Fixture: model without heavy loading
 @pytest.fixture
 def model(monkeypatch):  # type: ignore[misc]
     """Return LexiCacheModel with heavy I/O monkeypatched out."""
     monkeypatch.setattr(LexiCacheModel, "_load_support_set", lambda self: None)
     monkeypatch.setattr(LexiCacheModel, "_load_knowledge_base", lambda self: None)
 
-    # Patch __init__ minimally
+    # Minimal init patch
     import torch.nn as nn  # type: ignore[import]
     class FakeProj:
         def load_state_dict(self, *a, **kw): pass
@@ -85,11 +75,7 @@ def model(monkeypatch):  # type: ignore[misc]
     m.learned_types = {}
     m.clause_colors = {}
     return m
-
-
-# ===========================================================================
-# 1. _is_heading() tests
-# ===========================================================================
+# _is_heading tests
 class TestIsHeading:
     HEADINGS = [
         "ARTICLE I",
@@ -119,11 +105,7 @@ class TestIsHeading:
     def test_bodies_not_headings(self, model):
         for b in self.BODIES:
             assert not model._is_heading(b), f"Expected body (not heading): {b!r}"
-
-
-# ===========================================================================
-# 2. _segment_contract() tests
-# ===========================================================================
+# _segment_contract tests
 SAMPLE_CONTRACT = """\
 MASTER SERVICES AGREEMENT
 
@@ -171,21 +153,17 @@ class TestSegmentContract:
 
     def test_context_heading_propagated(self, model):
         segs = model._segment_contract(SAMPLE_CONTRACT)
-        # At least one segment should have a heading context
+        # At least one segment should carry heading context
         headings_seen = [s['context_heading'] for s in segs if s['context_heading']]
         assert headings_seen, "Expected heading context to be propagated to body segments"
 
     def test_reasonable_segment_count(self, model):
         segs = model._segment_contract(SAMPLE_CONTRACT)
-        # Should have at least 3 content segments (one per article body)
+        # Expect enough segments
         assert len(segs) >= 3, f"Too few segments: {len(segs)}"
-        # Should not explode (e.g. split every sentence on a short contract)
+        # Avoid over-splitting
         assert len(segs) <= 20, f"Too many segments: {len(segs)}"
-
-
-# ===========================================================================
-# 3. _classify_by_keywords() tests
-# ===========================================================================
+# _classify_by_keywords tests
 class TestClassifyByKeywords:
     def test_payment_terms_detected(self, model):
         text = "Payment shall be due within thirty days of invoice date. Late payments accrue interest."
@@ -219,13 +197,9 @@ class TestClassifyByKeywords:
     def test_unknown_for_gibberish(self, model):
         text = "Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor."
         clause_type, conf = model._classify_by_keywords(text)
-        # Either None or very low confidence
+        # Expect None or very low confidence
         assert clause_type is None or conf < 0.55
-
-
-# ===========================================================================
-# 4. _merge_adjacent_clauses() tests
-# ===========================================================================
+# _merge_adjacent_clauses tests
 class TestMergeAdjacentClauses:
     def _make_seg(self, clause_type, span, confidence=0.80, start=0, end=100):
         return {
@@ -264,7 +238,7 @@ class TestMergeAdjacentClauses:
             self._make_seg('Unknown clause', 'More unknown text.', start=51, end=100),
         ]
         merged = model._merge_adjacent_clauses(segs)
-        # Unknowns should NOT be merged (they need individual user review)
+        # Unknowns should not be merged
         assert len(merged) == 2
 
     def test_demotes_short_span(self, model):
@@ -280,7 +254,7 @@ class TestMergeAdjacentClauses:
             self._make_seg('Termination', 'Termination for breach shall be immediate.', confidence=0.82, start=161, end=240),
         ]
         merged = model._merge_adjacent_clauses(segs)
-        # The unknown in the middle should be promoted to Termination
+        # Middle unknown should be promoted
         middle = merged[1]
         assert middle['clause_type'] == 'Termination', f"Expected promoted, got: {middle['clause_type']}"
         assert middle['source'] == 'context_promoted'
@@ -292,13 +266,9 @@ class TestMergeAdjacentClauses:
             self._make_seg('Termination', 'Another termination clause.', start=801, end=830),
         ]
         merged = model._merge_adjacent_clauses(segs)
-        # Combined would exceed 800 — should NOT merge
+        # Combined span is too long to merge
         assert len(merged) == 2
-
-
-# ===========================================================================
-# 5. CLAUSE_KEYWORDS_WEIGHTED completeness test
-# ===========================================================================
+# CLAUSE_KEYWORDS_WEIGHTED completeness
 class TestKeywordDictionary:
     REQUIRED_CUAD_TYPES = [
         'Document Name', 'Parties', 'Agreement Date', 'Effective Date', 'Expiration Date',

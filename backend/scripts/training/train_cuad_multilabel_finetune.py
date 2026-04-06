@@ -35,10 +35,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer, get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
-
-# ---------------------------------------------------------------------------
 # CUAD 41 canonical categories (must match evaluate_cuad_document_level.py)
-# ---------------------------------------------------------------------------
 CUAD_41_CATEGORIES: List[str] = [
     "Document Name", "Parties", "Agreement Date", "Effective Date",
     "Expiration Date", "Renewal Term", "Notice Period To Terminate Renewal",
@@ -57,11 +54,8 @@ CUAD_41_CATEGORIES: List[str] = [
 ]
 NUM_LABELS = len(CUAD_41_CATEGORIES)
 CAT_TO_IDX: Dict[str, int] = {c: i for i, c in enumerate(CUAD_41_CATEGORIES)}
-
-# ---------------------------------------------------------------------------
 # Label aliases: maps variant names → canonical CUAD 41 name
-# (mirrors MODEL_TYPE_ALIASES in evaluate_cuad_document_level.py)
-# ---------------------------------------------------------------------------
+
 LABEL_ALIASES: Dict[str, str] = {
     # Termination
     "termination": "Termination For Convenience",
@@ -142,12 +136,7 @@ def map_clause_type(raw: str) -> Optional[str]:
         if cat.lower() == lower:
             return cat
     return None
-
-
-# ---------------------------------------------------------------------------
 # Dataset
-# ---------------------------------------------------------------------------
-
 class CUADMultiLabelDataset(Dataset):
     """
     Document-level multi-label dataset for CUAD.
@@ -275,12 +264,7 @@ class CUADMultiLabelDataset(Dataset):
             "labels": torch.tensor(labels, dtype=torch.float),  # [41]
             "n_chunks": torch.tensor(len(raw_chunks), dtype=torch.long),
         }
-
-
-# ---------------------------------------------------------------------------
 # Model
-# ---------------------------------------------------------------------------
-
 class LegalBERTMultiLabel(nn.Module):
     """
     Legal-BERT encoder with a 41-class sigmoid classification head.
@@ -333,12 +317,7 @@ class LegalBERTMultiLabel(nn.Module):
         pooled = (cls_3d * chunk_mask).sum(dim=1) / chunk_mask.sum(dim=1).clamp(min=1e-6)
         pooled = self.dropout(pooled)               # [B, hidden]
         return self.classifier(pooled)              # [B, num_labels]
-
-
-# ---------------------------------------------------------------------------
 # Training helpers
-# ---------------------------------------------------------------------------
-
 def compute_pos_weights(dataset: CUADMultiLabelDataset) -> torch.Tensor:
     """
     Compute per-class positive weights for BCEWithLogitsLoss.
@@ -472,12 +451,7 @@ def tune_per_class_thresholds(
                 best_thresholds[j] = t
 
     return best_thresholds
-
-
-# ---------------------------------------------------------------------------
 # Main
-# ---------------------------------------------------------------------------
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Fine-tune Legal-BERT for CUAD document-level multi-label classification"
@@ -541,10 +515,7 @@ def main() -> None:
     print(f"Epochs : {args.epochs}  |  Batch: {args.batch_size}  |  "
           f"Chunks: {args.max_chunks}×{args.chunk_size}")
     print("=" * 70)
-
-    # -----------------------------------------------------------------------
     # Tokenizer & datasets
-    # -----------------------------------------------------------------------
     print("\n[1/4] Loading tokenizer and datasets ...")
     tokenizer = AutoTokenizer.from_pretrained(args.encoder_name)
 
@@ -565,10 +536,7 @@ def main() -> None:
                               num_workers=0, pin_memory=torch.cuda.is_available())
     val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
                             num_workers=0, pin_memory=torch.cuda.is_available())
-
-    # -----------------------------------------------------------------------
     # Model
-    # -----------------------------------------------------------------------
     print("\n[2/4] Building model ...")
     model = LegalBERTMultiLabel(
         encoder_name=args.encoder_name,
@@ -608,10 +576,7 @@ def main() -> None:
         if match:
             start_epoch = int(match.group(1)) + 1
             print(f"Resuming training from Epoch {start_epoch}")
-    
-    # -----------------------------------------------------------------------
     # Optimizer & scheduler
-    # -----------------------------------------------------------------------
     print("\n[3/4] Setting up optimizer ...")
     # Separate learning rates: encoder (small) vs. head (larger)
     optimizer = torch.optim.AdamW(
@@ -639,10 +604,7 @@ def main() -> None:
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    # -----------------------------------------------------------------------
     # Training loop
-    # -----------------------------------------------------------------------
     print("\n[4/4] Training ...")
     best_macro_f1 = 0.0
     best_epoch = 0

@@ -41,19 +41,13 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 import torch
-
-# ---------------------------------------------------------------------------
 # project root on path
-# ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 from src.ml_model import LexiCacheModel           # noqa: E402
 from src.data import normalize_text               # noqa: E402
-
-# ---------------------------------------------------------------------------
 # Experiment configuration
-# ---------------------------------------------------------------------------
 TARGET_TYPES: List[str] = [
     # F1 = 0.0 in full evaluation (true zero-shot failures)
     "Most Favored Nation",
@@ -68,12 +62,7 @@ TARGET_TYPES: List[str] = [
 SHOT_COUNTS: List[int] = [0, 1, 2, 3, 4, 5, 7, 10]
 N_TRIALS: int = 5
 RANDOM_SEED: int = 42
-
-
-# ---------------------------------------------------------------------------
 # Data helpers
-# ---------------------------------------------------------------------------
-
 def load_spans(data_dir: Path, target_types: List[str]) -> Dict[str, List[str]]:
     """Return {clause_type: [span_text, ...]} for every target type found."""
     type_to_spans: Dict[str, List[str]] = {t: [] for t in target_types}
@@ -96,12 +85,7 @@ def load_spans(data_dir: Path, target_types: List[str]) -> Dict[str, List[str]]:
                 type_to_spans[ct].append(span)
 
     return type_to_spans
-
-
-# ---------------------------------------------------------------------------
 # Model surgery helpers
-# ---------------------------------------------------------------------------
-
 def strip_target_types(model: LexiCacheModel, target_types: List[str]) -> None:
     """Remove all seed support examples for the target clause types in-place."""
     keep = [
@@ -167,12 +151,7 @@ def teach_in_memory(model: LexiCacheModel, text: str, label: str) -> None:
     entry = model.learned_types[label]
     entry["count"] = entry.get("count", 0) + 1
     entry.setdefault("examples", []).append(text[:200])
-
-
-# ---------------------------------------------------------------------------
 # Evaluation helper
-# ---------------------------------------------------------------------------
-
 def evaluate(model: LexiCacheModel,
              test_spans: Dict[str, List[str]]) -> Dict:
     """
@@ -251,12 +230,7 @@ def evaluate(model: LexiCacheModel,
         "micro_recall":     round(micro_r,  4),
         "avg_confidence":   round(avg_conf_all, 4),
     }
-
-
-# ---------------------------------------------------------------------------
 # Charting
-# ---------------------------------------------------------------------------
-
 def _shot_axis(shot_counts: List[int]) -> List[str]:
     return [str(s) for s in shot_counts]
 
@@ -414,12 +388,7 @@ def plot_confidence(results: Dict, out_dir: Path) -> None:
     fig.savefig(out_dir / "chart4_confidence_micro_f1.png", dpi=150)
     plt.close(fig)
     print(f"  Saved: {out_dir / 'chart4_confidence_micro_f1.png'}")
-
-
-# ---------------------------------------------------------------------------
 # Main experiment
-# ---------------------------------------------------------------------------
-
 def run(args: argparse.Namespace) -> None:
     random.seed(RANDOM_SEED)
     np.random.seed(RANDOM_SEED)
@@ -442,10 +411,7 @@ def run(args: argparse.Namespace) -> None:
     print(f"  Trials    : {n_trials}")
     print(f"  Targets   : {len(TARGET_TYPES)} clause types")
     print("=" * 72)
-
-    # ------------------------------------------------------------------
     # Load CUAD spans
-    # ------------------------------------------------------------------
     print("\nLoading CUAD spans...")
     train_spans = load_spans(train_dir, TARGET_TYPES)
     test_spans  = load_spans(test_dir,  TARGET_TYPES)
@@ -468,10 +434,7 @@ def run(args: argparse.Namespace) -> None:
 
     # Filter test_spans to only usable types
     test_spans_filtered = {t: test_spans[t] for t in usable_types}
-
-    # ------------------------------------------------------------------
     # Load model (use_train_only=True → no saved learned examples)
-    # ------------------------------------------------------------------
     print("\nLoading LexiCacheModel...")
     model = LexiCacheModel(use_train_only=True)
 
@@ -484,10 +447,7 @@ def run(args: argparse.Namespace) -> None:
 
     # Save the baseline (stripped) state — restored between every trial
     baseline = snapshot(model)
-
-    # ------------------------------------------------------------------
     # Experiment loop
-    # ------------------------------------------------------------------
     # results[shot_count] = List[metrics_dict]  (one entry per trial)
     results: Dict[int, List[Dict]] = {n: [] for n in shot_counts}
 
@@ -522,10 +482,7 @@ def run(args: argparse.Namespace) -> None:
         trial_macro = [r["macro_f1"] for r in results[n_shot]]
         print(f"  → mean macro F1 = {np.mean(trial_macro):.4f} "
               f"± {np.std(trial_macro):.4f}")
-
-    # ------------------------------------------------------------------
     # Print final summary table
-    # ------------------------------------------------------------------
     print("\n" + "=" * 90)
     print("FEW-SHOT TEACHING RESULTS — SUMMARY TABLE")
     print("=" * 90)
@@ -553,10 +510,7 @@ def run(args: argparse.Namespace) -> None:
         cs  = [r["per_class"][t]["avg_confidence"] for r in results[max_n]]
         print(f"  {t:<45} {np.mean(f1s):>6.4f}  "
               f"{np.mean(ps):>6.4f}  {np.mean(rs):>6.4f}  {np.mean(cs):>6.4f}")
-
-    # ------------------------------------------------------------------
     # Save JSON results
-    # ------------------------------------------------------------------
     output = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "description": (
@@ -596,10 +550,7 @@ def run(args: argparse.Namespace) -> None:
     with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(output, fh, indent=2)
     print(f"\nJSON results saved to: {json_path}")
-
-    # ------------------------------------------------------------------
     # Generate charts
-    # ------------------------------------------------------------------
     print("\nGenerating charts...")
     plot_macro_f1(results, out_dir)
     plot_precision_recall(results, out_dir)
@@ -608,12 +559,7 @@ def run(args: argparse.Namespace) -> None:
 
     print(f"\nAll charts saved to: {out_dir}")
     print("\nDone.")
-
-
-# ---------------------------------------------------------------------------
 # Entry point
-# ---------------------------------------------------------------------------
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Evaluate few-shot teaching accuracy for rare/unknown clause types"

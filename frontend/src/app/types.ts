@@ -46,6 +46,8 @@ export type AnalysisResult = {
   file_type?: string;
   status?: string;
   cached_at?: string;
+  cache_match_type?: "exact" | "template_variant";
+  changed_fields?: string[];
   verification?: VerificationState;
   history?: VerificationAttempt[];
 };
@@ -71,6 +73,7 @@ export type VerificationAttempt = {
   blockchain_link: string;
   geo_hash?: string | null;
   geo_summary?: string | null;
+  changed_fields?: string[];
 };
 
 export type SearchMatch = {

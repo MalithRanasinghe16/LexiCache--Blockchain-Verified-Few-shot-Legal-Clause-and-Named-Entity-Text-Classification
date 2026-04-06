@@ -1,15 +1,3 @@
-"""
-Redis-based document deduplication for LexiCache.
-
-Caches full analysis results keyed by a SHA-256 fingerprint of the
-normalised document text, so that re-uploading an identical contract
-(even with minor whitespace/date formatting differences) returns the
-stored result instantly without re-running Legal-BERT inference.
-
-TTL: 90 days.  If Redis is unreachable the module degrades gracefully
-and every request falls through to the model (no crash, no data loss).
-"""
-
 import hashlib
 import json
 import logging
@@ -22,29 +10,23 @@ from src.data import normalize_text
 
 logger = logging.getLogger(__name__)
 
-# 90 days expressed in seconds
+# 90 days in seconds
 CACHE_TTL: int = 90 * 24 * 3600
 
-# Module-level singleton — one connection shared across all requests
+# Shared Redis client
 _redis_client: Optional[redis.Redis] = None  # type: ignore[type-arg]
 
 
 def _get_redis() -> Optional[redis.Redis]:  # type: ignore[type-arg]
-    """
-    Return a connected Redis client, or None if Redis is unavailable.
-
-    Uses a module-level singleton so we only attempt to connect once per
-    server process.  socket_connect_timeout=2 keeps startup fast when
-    Redis is not running.
-    """
+    """Return Redis client, or None if unavailable."""
     global _redis_client
     if _redis_client is not None:
-        # Verify the connection is still alive before returning it
+        # Reuse current connection if healthy
         try:
             _redis_client.ping()
             return _redis_client
         except Exception:
-            # Connection dropped — reset and try to reconnect below
+            # Reconnect if the old one is stale
             _redis_client = None
 
     try:
@@ -67,9 +49,7 @@ def _get_redis() -> Optional[redis.Redis]:  # type: ignore[type-arg]
         return None
 
 
-# ---------------------------------------------------------------------------
 # Public API
-# ---------------------------------------------------------------------------
 
 def _tokenize_for_fingerprint(normalized_text: str) -> List[str]:
     stop = {
@@ -109,12 +89,7 @@ def _hamming64(a: int, b: int) -> int:
 
 
 def compute_doc_fingerprints(raw_text: str) -> Dict[str, Any]:
-    """
-    Compute stable exact and near-duplicate fingerprints for a document.
-
-    - primary_hash: strict content hash after canonical token normalization
-    - simhash64/buckets: approximate index keys for near-duplicate retrieval
-    """
+    """Compute exact and near-duplicate fingerprints."""
     normalized = normalize_text(raw_text)
     tokens = _tokenize_for_fingerprint(normalized)
     stable_text = " ".join(tokens)
@@ -131,19 +106,7 @@ def compute_doc_fingerprints(raw_text: str) -> Dict[str, Any]:
     }
 
 def compute_doc_hash(raw_text: str) -> str:
-    """
-    Return a stable SHA-256 hex digest that uniquely identifies a document
-    by its *content*, not its filename or upload time.
-
-    The text is normalised before hashing (lowercase, dates → [DATE],
-    whitespace collapsed) so cosmetically different re-uploads of the
-    same contract — e.g. different line endings or date representations —
-    map to the same hash and correctly hit the cache.
-
-    Note: raw_text is NOT modified here; normalisation is applied only
-    inside this function for hashing purposes.  model.predict_cuad always
-    receives the original raw text.
-    """
+    """Return stable SHA-256 hash for document content."""
     return str(compute_doc_fingerprints(raw_text)["primary_hash"])
 
 
@@ -330,12 +293,7 @@ def _get_total_teach_count(meta: Optional[Dict[str, Any]]) -> int:
 
 
 def _is_verify_cycle_open(meta: Optional[Dict[str, Any]]) -> bool:
-    """
-    Verify-cycle gate:
-    - Before first verification: open
-    - After any verification: closed until new teaching occurs
-      (i.e., total taught count increases beyond last verified count)
-    """
+        """Return True when a new verification is needed."""
     if not meta:
         return True
 
@@ -358,11 +316,7 @@ def is_first_uploader(doc_hash: str, user_id: str) -> bool:
 
 
 def can_user_verify(doc_hash: str, user_id: str, unknown_count: int) -> Tuple[bool, str]:
-    """
-    Verification rule:
-    - First uploader can verify while verify-cycle is open.
-    - Later users must teach at least one unknown for that document.
-    """
+    """Check if this user can verify now."""
     meta = get_document_meta(doc_hash)
     if not _is_verify_cycle_open(meta):
         return False, "Verification already recorded. Teach at least one unknown clause to unlock verify again."
@@ -393,12 +347,7 @@ def seed_verification_baseline(
     user_id: str,
     history: List[Dict[str, Any]],
 ) -> bool:
-    """
-    Seed Redis metadata with durable verification history baseline.
-
-    This keeps verify-cycle gating correct even if Redis metadata expired
-    while durable history remains available (e.g., MongoDB fallback).
-    """
+    """Seed Redis metadata from durable verification history."""
     if not history:
         return False
 
@@ -439,6 +388,24 @@ def get_verification_state(doc_hash: str, user_id: str, unknown_count: int) -> D
     }
 
 
+def store_changed_fields_meta(doc_hash: str, changed_fields: List[str]) -> bool:
+    """Persist which placeholder types changed for a template-variant upload."""
+    meta = get_document_meta(doc_hash)
+    if meta is None:
+        meta = _default_meta("anonymous")
+    meta["last_changed_fields"] = changed_fields
+    return _save_document_meta(doc_hash, meta)
+
+
+def get_changed_fields_meta(doc_hash: str) -> List[str]:
+    """Return the stored changed-fields list for a document, or []."""
+    meta = get_document_meta(doc_hash)
+    if not meta:
+        return []
+    fields = meta.get("last_changed_fields")
+    return fields if isinstance(fields, list) else []
+
+
 def create_verification_attempt(
     doc_hash: str,
     user_id: str,
@@ -450,14 +417,9 @@ def create_verification_attempt(
     snapshot_hash: Optional[str] = None,
     geo_hash: Optional[str] = None,
     geo_summary: Optional[str] = None,
+    changed_fields: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Append immutable verification attempt metadata to document history.
-
-    Blockchain proof is represented as a deterministic content hash + pseudo
-    explorer link so the frontend can display a permanent, externally
-    checkable proof URL shape.
-    """
+    """Append one verification attempt to history."""
     user = (user_id or "anonymous").strip() or "anonymous"
     meta = get_document_meta(doc_hash)
     if meta is None:
@@ -498,6 +460,7 @@ def create_verification_attempt(
         "blockchain_link": blockchain_link,
         "geo_hash": geo_hash,
         "geo_summary": geo_summary,
+        "changed_fields": changed_fields or [],
     }
 
     attempts.append(attempt)
@@ -512,12 +475,7 @@ def create_verification_attempt(
 
 
 def rollback_open_cycle_data(doc_hash: str) -> bool:
-    """
-    Roll back unverified cycle changes while preserving verified baseline metadata.
-
-    Used when a user leaves after teaching but before verifying on a previously
-    verified document.
-    """
+    """Rollback unverified cycle changes and keep verified baseline."""
     client = _get_redis()
     if client is None:
         return False
@@ -534,8 +492,7 @@ def rollback_open_cycle_data(doc_hash: str) -> bool:
         meta["taught_users"] = dict(baseline_map)
         meta["last_verified_taught_total"] = _get_total_teach_count({"taught_users": baseline_map})
 
-        # Clear current analysis cache so next upload starts fresh classification.
-        # Keep docmeta so verification history and cycle baseline survive reload.
+        # Clear analysis cache but keep metadata/history
         client.delete(_doc_key(doc_hash), _history_key(doc_hash))
         if not _save_document_meta(doc_hash, meta):
             return False
@@ -605,11 +562,7 @@ def has_open_verification_cycle(doc_hash: str) -> bool:
 
 
 def should_discard_on_leave(doc_hash: str) -> bool:
-    """
-    Discard if:
-    - there has never been a verification attempt, or
-    - a new verify cycle is open (teaching happened after last verification).
-    """
+    """Return True when unverified changes should be discarded on leave."""
     meta = get_document_meta(doc_hash)
     if not meta:
         return False
@@ -649,18 +602,12 @@ def _load_docmeta(client: redis.Redis, doc_hash: str) -> Optional[Dict[str, Any]
 
 
 def get_cached_result(doc_hash: Union[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """
-    Look up a previously stored analysis result in Redis.
-
-    Returns the full cached payload dict (keys: clauses, page_texts,
-    extracted_text, file_type, analyzed_at) or None if the key does not
-    exist, has expired, or Redis is unavailable.
-    """
+    """Return cached analysis result from Redis if available."""
     client = _get_redis()
     if client is None:
         return None
 
-    # Backward-compatible strict hash lookup.
+    # Strict hash lookup
     if isinstance(doc_hash, str):
         try:
             raw = client.get(_doc_key(doc_hash))
@@ -688,7 +635,7 @@ def get_cached_result(doc_hash: Union[str, Dict[str, Any]]) -> Optional[Dict[str
             logger.warning("[Redis] get() failed: %s", exc)
             return None
 
-    # Near-duplicate path using fingerprint dict.
+    # Near-duplicate lookup
     if not isinstance(doc_hash, dict):
         return None
 
@@ -775,6 +722,7 @@ def store_result(
     page_texts: List[Dict[str, Any]],
     extracted_text: str,
     file_type: str,
+    raw_hash: Optional[str] = None,
 ) -> bool:
     """
     Persist a full analysis result in Redis with a 90-day TTL.
@@ -817,6 +765,7 @@ def store_result(
             "extracted_text": extracted_text,
             "file_type": file_type,
             "analyzed_at": datetime.now(timezone.utc).isoformat(),
+            "raw_hash": raw_hash,
         }
 
         meta = get_document_meta(primary_hash) or _default_meta("anonymous")

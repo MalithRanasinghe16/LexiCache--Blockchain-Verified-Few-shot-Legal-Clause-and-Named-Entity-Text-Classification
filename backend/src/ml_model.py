@@ -36,17 +36,14 @@ CUAD_41_CATEGORIES: List[str] = [
     "Third Party Beneficiary", "Indemnification",
 ]
 
-# Per-class minimum confidence thresholds for including a prediction.
-# Derived from ablation results: rare/hard classes use lower thresholds to
-# improve recall (these types had near-zero F1 at the global 0.30 threshold).
-# Easy/high-precision classes keep a stricter threshold to avoid false positives.
+# Per-class confidence thresholds
 PER_CLASS_INCLUSION_THRESHOLDS: Dict[str, float] = {
-    # Near-zero F1 in ablation — maximum permissiveness to catch any true positive
+    # Very low-performing classes
     "Most Favored Nation":          0.18,
     "No-Solicit Of Customers":      0.18,
     "No-Solicit Of Employees":      0.18,
     "Non-Disparagement":            0.18,
-    # Low F1 (0.05–0.15) — very permissive
+    # Low-performing classes
     "Non-Compete":                  0.20,
     "Anti-Assignment":              0.22,
     "Expiration Date":              0.22,
@@ -60,7 +57,7 @@ PER_CLASS_INCLUSION_THRESHOLDS: Dict[str, float] = {
     "Unlimited/All-You-Can-Eat-License": 0.22,
     "Affiliate License-Licensor":   0.22,
     "Affiliate License-Licensee":   0.22,
-    # Moderate difficulty — permissive
+    # Medium-low classes
     "Source Code Escrow":           0.25,
     "Post-Termination Services":    0.25,
     "Non-Transferable License":     0.25,
@@ -71,7 +68,7 @@ PER_CLASS_INCLUSION_THRESHOLDS: Dict[str, float] = {
     "Covenant Not To Sue":          0.25,
     "Third Party Beneficiary":      0.25,
     "Notice Period To Terminate Renewal": 0.25,
-    # Medium F1 range — moderate threshold
+    # Medium classes
     "Change Of Control":            0.28,
     "Termination For Convenience":  0.28,
     "Ip Ownership Assignment":      0.28,
@@ -81,17 +78,17 @@ PER_CLASS_INCLUSION_THRESHOLDS: Dict[str, float] = {
     "Audit Rights":                 0.28,
     "Indemnification":              0.28,
     "Exclusivity":                  0.28,
-    # Better-performing types — standard threshold
+    # Standard classes
     "Agreement Date":               0.30,
     "Effective Date":               0.30,
     "Governing Law":                0.35,
-    # High-precision types — strict threshold
+    # High-precision classes
     "Document Name":                0.40,
     "Parties":                      0.40,
 }
 
 
-# Heading patterns used in the contract segmenter
+# Heading patterns for segmentation
 _HEADING_LINE_PATTERNS = [
     re.compile(r'^\s*(ARTICLE|SECTION|CHAPTER|PART|SCHEDULE|EXHIBIT|ANNEX)\s+[IVXLCDM\d]+', re.IGNORECASE),
     re.compile(r'^\s*\d+(\.\d+)*\.?\s+[A-Z]'),                          # 1. Title, 1.2 Title
@@ -102,8 +99,7 @@ _HEADING_LINE_PATTERNS = [
     re.compile(r'^\s*[A-Z][A-Za-z\s\-&,]{2,60}\s*:\s*$'),              # Mixed case heading ending in colon
 ]
 
-# Weighted clause keywords: { clause_type: [(keyword, weight), ...] }
-# weight=2 for specific multi-word phrases, weight=1 for generic terms
+# Weighted clause keywords
 CLAUSE_KEYWORDS_WEIGHTED = {
     # Core Agreement Terms
     'Document Name': [
@@ -476,14 +472,14 @@ CLAUSE_KEYWORDS_WEIGHTED = {
     ],
 }
 
-# Flat CLAUSE_KEYWORDS dict (for backward compatibility with existing API endpoint)
+# Flat keyword map for API compatibility
 CLAUSE_KEYWORDS = {
     k: [kw for kw, _ in pairs]
     for k, pairs in CLAUSE_KEYWORDS_WEIGHTED.items()
 }
 
 
-# LexiCacheModel
+# Main model class
 
 class LexiCacheModel:
     @staticmethod
@@ -535,7 +531,7 @@ class LexiCacheModel:
         self.projection.eval()
         print(f"  [timing] Legal-BERT + projection loaded in {time.time() - t0:.1f}s")
 
-        # Dynamic support set for online meta-learning
+        # Runtime support set
         self.support_embeddings: List[Any] = []
         self.support_labels: List[str] = []
         self.support_texts: List[str] = []
@@ -551,11 +547,11 @@ class LexiCacheModel:
         self.model_high_threshold: float = 0.75
         self.unknown_threshold: float = 0.35
 
-        # Hybrid weighting: keywords are more reliable for CUAD
+        # Hybrid weights
         self.kw_weight: float = max(0.0, float(kw_weight))
         self.model_weight: float = max(0.0, float(model_weight))
 
-        # Tunable inference controls for threshold sweeps.
+        # Inference controls
         self.inclusion_conf_threshold: float = float(inclusion_conf_threshold)
         self.context_promote_threshold: float = float(context_promote_threshold)
         self.model_distance_scale: float = max(0.1, float(model_distance_scale))
@@ -568,7 +564,7 @@ class LexiCacheModel:
         self.multilabel_model = None
         self.multilabel_tokenizer = None
         
-        # Per-class thresholds for the multilabel model (loaded from training output if available)
+        # Optional per-class thresholds from training output
         self.multilabel_per_class_thresholds: Optional[np.ndarray] = None
 
         if self.use_multilabel:
@@ -592,7 +588,7 @@ class LexiCacheModel:
                     else:
                         print(f"  [warn] LegalBERTMultiLabel weights not found in {model_dir}")
 
-                    # Load per-class thresholds produced by threshold tuning (if available)
+                    # Load tuned per-class thresholds
                     thresholds_path = model_dir / "per_class_thresholds.npy"
                     if thresholds_path.exists():
                         self.multilabel_per_class_thresholds = np.load(str(thresholds_path))
@@ -606,13 +602,12 @@ class LexiCacheModel:
         self.learned_types: Dict[str, Dict[str, Any]] = {}
         self.clause_colors: Dict[str, str] = {}
 
-        # Always seed initial support from CUAD train split when available.
-        # In evaluation mode this is the only support source for a fair baseline.
+        # Seed support from CUAD train split when available
         t0 = time.time()
         self._load_initial_cuad_support(cuad_train_path, max_seed_examples_per_type)
         print(f"  [timing] CUAD seed support loaded in {time.time() - t0:.1f}s")
 
-        # Runtime default keeps existing learned-example loading behavior.
+        # Keep existing runtime loading behavior
         if not self.use_train_only:
             t0 = time.time()
             self._load_support_set()
@@ -643,9 +638,7 @@ class LexiCacheModel:
         if not stripped:
             return 'BLANK'
 
-        # Numbered legal lines can include full clause text on the same line,
-        # e.g. "8.1 Non-Compete: Service Provider shall ...".
-        # Treat these as BODY so highlights include the full clause sentence.
+        # Numbered lines can still be full clause text
         numbered_inline_clause = re.match(r'^\s*\d+(?:\.\d+)*\s+[^\n:]{1,80}:\s+\S+', stripped)
         if numbered_inline_clause and len(stripped.split()) >= 8:
             return 'BODY'
@@ -653,7 +646,7 @@ class LexiCacheModel:
         for pattern in _HEADING_LINE_PATTERNS:
             if pattern.match(stripped):
                 return 'HEADING'
-        # Short with no sentence-ending punctuation → likely heading
+        # Short lines without sentence ending are likely headings
         if len(stripped) <= 80 and not any(stripped.endswith(p) for p in ['.', '!', '?', ';', ',']):
             alpha = [c for c in stripped if c.isalpha()]
             if alpha:
@@ -676,7 +669,7 @@ class LexiCacheModel:
         lines = text.splitlines()
         tagged = [(line, self._classify_line(line)) for line in lines]
 
-        # --- Group into raw blocks -------------------------------------------
+        # Group lines into blocks
         blocks: List[Dict[str, Any]] = []   # list of {'type': str, 'lines': [str], 'start_idx': int}
         current_type = None
         current_lines = []
@@ -701,7 +694,7 @@ class LexiCacheModel:
         if current_lines:
             blocks.append({'type': current_type, 'lines': current_lines, 'start_idx': start_idx})
 
-        # --- Merge tiny BODY blocks upstream ----------------------------------
+        # Merge tiny body blocks
         merged_blocks = []
         i = 0
         while i < len(blocks):
@@ -710,10 +703,10 @@ class LexiCacheModel:
             blk_lines: List[str] = cast(List[str], blk['lines'])
             if blk_type == 'BODY':
                 body_text = '\n'.join(blk_lines).strip()
-                # If this block is very short, peek ahead and merge with next BODY block
+                # Merge short block with next body block when possible
                 if len(body_text) < 80 and i + 1 < len(blocks):
                     j = i + 1
-                    # Skip over BLANK blocks
+                    # Skip blank blocks
                     while j < len(blocks) and cast(str, blocks[j]['type']) == 'BLANK':
                         j += 1
                     if j < len(blocks) and cast(str, blocks[j]['type']) == 'BODY':
@@ -729,7 +722,7 @@ class LexiCacheModel:
             merged_blocks.append(blk)
             i += 1
 
-        # --- Build segments with heading context ------------------------------
+        # Build segments with heading context
         segments = []
         last_heading_text = ''
         char_pos = 0
@@ -739,22 +732,22 @@ class LexiCacheModel:
             stripped = raw_text.strip()
 
             if blk['type'] == 'HEADING':
-                # Strip out empty lines within the heading block
+                # Remove empty lines in heading block
                 heading_lines = [l.strip() for l in blk['lines'] if l.strip()]
                 last_heading_text = ' '.join(heading_lines)
                 char_pos += len(raw_text) + 1
-                continue  # headings are NOT added as classifiable segments
+                continue  # headings are not classifiable segments
 
             if blk['type'] == 'BLANK':
                 char_pos += len(raw_text) + 1
                 continue
 
-            # BODY block
+            # Body block
             if len(stripped) < 30:
-                # Include context heading in classification if body is short but heading is meaningful
+                # Use heading context for short body text
                 combined_text = f"{last_heading_text} {stripped}".strip() if last_heading_text else stripped
                 if len(combined_text) >= 30:
-                    # Use combined heading + body for better context
+                    # Combine heading and body for context
                     start_idx = blk['start_idx']
                     end_idx = start_idx + len(stripped)
                     
@@ -770,9 +763,7 @@ class LexiCacheModel:
             start_idx = blk['start_idx']
             end_idx = start_idx + len(stripped)
 
-            # Further split very long paragraphs by sentence boundaries.
-            # Threshold is 1500 chars - legal clauses regularly exceed 600 chars
-            # and splitting earlier creates fragments too short to classify.
+            # Split very long paragraphs by sentence
             if len(stripped) > 1500:
                 sentences = re.split(r'(?<=[.!?;])\s+(?=[A-Z\(\"])', stripped)
                 sent_pos = start_idx
@@ -830,7 +821,7 @@ class LexiCacheModel:
 
         return False
 
-    # Keyword classification (with heading boost)
+    # Keyword classification
 
     def _classify_by_keywords(self, text: str, context_heading: str = '') -> Tuple[Optional[str], float]:
         """
@@ -870,22 +861,21 @@ class LexiCacheModel:
             elif score > second_score:
                 second_score = score
 
-        # Avoid overconfident labels from only weak/generic keyword signals.
+        # Avoid overconfident weak keyword matches
         if best_match and not best_has_strong and best_score < 3.0:
             return None, 0.0
 
-        # If top two classes are too close and evidence isn't very strong,
-        # treat as uncertain instead of forcing a potentially wrong label.
+        # If top scores are too close, mark as uncertain
         if best_match and best_score < 6.0 and second_score >= (best_score * 0.90):
             return None, 0.0
 
-        # Parties is easily over-triggered in legal prose. Require strong intro-style cues.
+        # Require stronger cues for Parties
         if best_match == 'Parties' and (not best_has_strong or best_score < 4.0):
             return None, 0.0
 
-        #CONFIDENCE SCALING - Higher base confidence
+        # Confidence scaling
         if best_match and best_score >= 6.0:
-            # Very strong match (multiple weighted keywords)
+            # Very strong match
             confidence = min(0.98, 0.75 + (best_score * 0.03))
             return best_match, confidence
         elif best_match and best_score >= 3.0:
@@ -897,12 +887,12 @@ class LexiCacheModel:
             confidence = min(0.75, 0.52 + (best_score * 0.08))
             return best_match, confidence
         elif best_match and best_score >= 1.0:
-            # Weak but valid match
+            # Weak match
             return best_match, 0.48
         
         return None, 0.0
 
-    # Hybrid ensemble classification
+    # Hybrid classification
 
     def _classify_by_model_similarity(self, proj: torch.Tensor) -> Tuple[Optional[str], float, float]:
         """Classify by support-set similarity using per-label aggregated distances.
@@ -920,7 +910,7 @@ class LexiCacheModel:
         for idx, label in enumerate(self.support_labels):
             label_to_dists[label].append(float(dists[idx].item()))
 
-        # Aggregate each label by mean of its top-k nearest examples.
+        # Use mean of top-k nearest examples per label
         agg: Dict[str, float] = {}
         for label, dist_list in label_to_dists.items():
             nearest = sorted(dist_list)[: self.model_label_agg_topk]
@@ -936,7 +926,7 @@ class LexiCacheModel:
 
         conf = max(0.0, min(0.95, 1.0 - (best_dist / self.model_distance_scale)))
 
-        # Penalize ambiguous model decisions with very small top-2 margin.
+        # Penalize very small top-2 margin
         if len(ranked) > 1 and margin < self.model_margin_threshold:
             conf *= 0.75
 
@@ -958,10 +948,10 @@ class LexiCacheModel:
                 'needs_review': True
             }
 
-        # Keyword classification on raw text
+        # Keyword score on raw text
         kw_type, kw_conf = self._classify_by_keywords(raw, context_heading)
 
-        # Model classification on normalized text
+        # Model score on normalized text
         normalized = normalize_text(raw)
         with torch.no_grad():
             emb = self.model([normalized], batch_size=1)
@@ -969,14 +959,14 @@ class LexiCacheModel:
 
         model_type, model_conf, model_margin = self._classify_by_model_similarity(proj)
 
-        # Simple hybrid fusion
+        # Hybrid fusion
         if kw_type and model_type and kw_type == model_type:
-            # Strong agreement bonus
+            # Boost when both agree
             blended_conf = min(0.98, (kw_conf * self.kw_weight + model_conf * self.model_weight) + 0.18)
             final_type = kw_type
             source = 'hybrid_agree'
         elif kw_type and model_type:
-            # Choose the stronger signal, but blend a little
+            # Choose stronger signal with light blend
             if kw_conf > model_conf * 1.1:
                 final_type = kw_type
                 blended_conf = kw_conf * self.kw_weight + model_conf * 0.25
@@ -991,8 +981,7 @@ class LexiCacheModel:
             source = 'keywords'
         elif model_type:
             final_type = model_type
-            # Learned/taught types get full model weight — they have no keyword signal
-            # by design (user-defined), so the 0.45 discount would structurally block them.
+            # Learned/taught types use full model weight
             if model_type in self.learned_types:
                 blended_conf = min(0.95, model_conf * 0.85)
             else:
@@ -1003,9 +992,7 @@ class LexiCacheModel:
             blended_conf = 0.0
             source = 'low_confidence'
 
-        # Apply per-class inclusion threshold: if confidence is below the minimum
-        # for this clause type, demote to Unknown rather than return a noisy prediction.
-        # User-taught types use a fixed lower bar since they lack keyword support.
+        # Demote low-confidence predictions to Unknown
         if final_type != 'Unknown clause':
             if final_type in self.learned_types:
                 min_conf = 0.25
@@ -1018,7 +1005,7 @@ class LexiCacheModel:
                 blended_conf = 0.0
                 source = 'low_confidence'
 
-        # Lower needs_review bar for user-taught types (they intentionally lack keywords)
+        # Lower needs_review bar for user-taught types
         if final_type in self.learned_types:
             needs_review = blended_conf < 0.35
         else:
@@ -1035,14 +1022,14 @@ class LexiCacheModel:
             'model_conf': round(model_conf, 4) if model_conf else 0.0,
         }
 
-    # Post-processing: merge, demote, context-promote
+    # Post-processing
 
     def _merge_adjacent_clauses(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Post-processing rules: merge adjacent same-type clauses, demote short spans, context-promote."""
         if not results:
             return results
 
-        # --- Rule 1: Merge adjacent same-type --------------------------------
+        # Rule 1: merge adjacent same-type segments
         merged: List[Dict[str, Any]] = [results[0].copy()]
         for curr in list(results[1:]):
             prev = merged[-1]
@@ -1051,7 +1038,7 @@ class LexiCacheModel:
             combined_len = len(prev['span']) + len(curr['span'])
 
             if same_type and not_unknown and combined_len <= 800:
-                # Use average confidence for merged segments
+                # Average confidence when merged
                 avg_conf = (prev['confidence'] + curr['confidence']) / 2
                 
                 merged[-1] = {
@@ -1064,13 +1051,13 @@ class LexiCacheModel:
             else:
                 merged.append(curr.copy())
 
-        # Rule 2: Demote very short segments
+        # Rule 2: demote very short segments
         for seg in merged:
             if len(seg['span'].strip()) < 25:
                 seg['confidence'] = min(seg['confidence'], 0.45)
                 seg['needs_review'] = True
 
-        # Rule 3: Context-promote sandwiched unknowns
+        # Rule 3: context-promote sandwiched unknowns
         context_promote_threshold = float(getattr(self, 'context_promote_threshold', 0.70))
         for i in range(1, len(merged) - 1):
             if merged[i]['clause_type'] == 'Unknown clause':
@@ -1111,7 +1098,7 @@ class LexiCacheModel:
         right_limit = min(n, end + lookaround_chars)
 
         left_slice = contract_text[left_limit:start]
-        # Keep single wrapped lines inside the same sentence by default.
+        # Keep wrapped single lines in same sentence
         left_boundaries = ["\n\n", ". ", "; ", ": ", "? ", "! "]
         best_left = -1
         best_left_token = ""
@@ -1127,7 +1114,7 @@ class LexiCacheModel:
             disp_start = left_limit
 
         right_slice = contract_text[end:right_limit]
-        # Keep single wrapped lines inside the same sentence by default.
+        # Keep wrapped single lines in same sentence
         right_boundaries = ["\n\n", ". ", "; ", ": ", "? ", "! "]
         best_right: Optional[int] = None
         best_right_token = ""
@@ -1216,7 +1203,7 @@ class LexiCacheModel:
                 logits = self.multilabel_model(input_ids_t, attn_mask_t, n_chunks_t)
                 probs = torch.sigmoid(logits)[0].cpu().numpy()
 
-            # Apply per-class thresholds from threshold tuning if available
+            # Apply tuned per-class thresholds when available
             if self.multilabel_per_class_thresholds is not None:
                 thresholds = self.multilabel_per_class_thresholds
             else:
@@ -1244,10 +1231,7 @@ class LexiCacheModel:
         print(f"{'='*85}")
         print(f"Contract length: {len(contract_text)} characters")
 
-        # Document-level clause presence probabilities from the fine-tuned multilabel model.
-        # Used as a prior to boost/suppress segment-level confidence:
-        #   - If document-level says a type is present   → boost segment confidence (+0.10)
-        #   - If document-level says a type is absent    → penalise segment confidence (-0.08)
+        # Use document-level prior to adjust segment confidence
         doc_probs: Dict[str, float] = {}
         ml_thresholds: np.ndarray = np.full(len(CUAD_41_CATEGORIES), 0.50)
         if self.multilabel_model is not None:
@@ -1266,8 +1250,7 @@ class LexiCacheModel:
         results: List[Dict[str, Any]] = []
 
         for seg in segments:
-            # Drop structural garbage only: page numbers, bare section headers,
-            # single words, empty lines. Threshold matches the segmenter minimum (30 chars).
+            # Drop structural-only text
             if len(seg['text'].strip()) < 30:
                 continue
 
@@ -1279,18 +1262,17 @@ class LexiCacheModel:
             type_key = classification['clause_type']
             conf = classification['confidence']
 
-            # Apply document-level prior to modulate segment confidence.
-            # Only adjust named (non-Unknown) predictions with a doc-level signal.
+            # Apply document-level prior to named predictions
             if type_key != 'Unknown clause' and type_key in doc_probs:
                 doc_prob = doc_probs[type_key]
                 cat_idx = CUAD_41_CATEGORIES.index(type_key)
                 doc_threshold = float(ml_thresholds[cat_idx])
                 if doc_prob >= doc_threshold:
-                    # Document model agrees this type is present — boost confidence
+                    # Boost when document model supports this type
                     conf = min(0.97, conf + 0.10)
                     classification['source'] = classification.get('source', '') + '+doc_boost'
                 else:
-                    # Document model says this type is absent — penalise confidence
+                    # Penalize when document model disagrees
                     conf = max(0.0, conf - 0.08)
                     classification['source'] = classification.get('source', '') + '+doc_penalty'
                 classification['confidence'] = round(conf, 4)
@@ -1311,9 +1293,7 @@ class LexiCacheModel:
                 'context_heading': seg.get('context_heading', ''),
             })
 
-        # Post-processing in document order: merge adjacent same-type clauses,
-        # demote short spans, context-promote sandwiched unknowns.
-        # Sort happens AFTER merge so adjacent same-type clauses remain adjacent.
+        # Post-process in document order
         results = self._merge_adjacent_clauses(results)
 
         # Final needs_review pass
@@ -1321,7 +1301,7 @@ class LexiCacheModel:
             if r['is_unknown']:
                 r['needs_review'] = True
             elif r['confidence'] < 0.65:
-                # Known clauses below the confident threshold still need review
+                # Known low-confidence clauses still need review
                 r['needs_review'] = True
 
             exact_start = int(r.get('start_idx', 0) or 0)
@@ -1336,10 +1316,10 @@ class LexiCacheModel:
             r['display_start_idx'] = disp_start
             r['display_end_idx'] = disp_end
 
-            # Backward-compatible field consumed by existing UI components.
+            # Backward-compatible field for UI
             r['span'] = disp_text if disp_text else exact_text
 
-        # Sort for display: unknown clauses last, then by confidence descending
+        # Sort: known first, then confidence
         results.sort(key=lambda x: (x['is_unknown'], -x['confidence']))
 
         known_count = len([r for r in results if not r['is_unknown']])
@@ -1378,7 +1358,7 @@ class LexiCacheModel:
             print(f"  CUAD train seed path has no JSON files, skipping: {train_dir}")
             return
 
-        # --- Try loading pre-computed cache first ---
+        # Try precomputed cache first
         cache_path = Path("models/cuad_seed_cache.pt")
         if cache_path.exists():
             try:
@@ -1386,8 +1366,7 @@ class LexiCacheModel:
                 cached_embeddings = cached['embeddings']
                 cached_labels = cached['labels']
                 cached_texts = cached['texts']
-                # Validate cache was built with at least as many examples per type as requested.
-                # If not, discard and re-embed so we pick up the extra support examples.
+                # Rebuild if cache has too few examples
                 cached_max = int(cached.get('max_seed_per_type', 0))
                 cache_valid = (
                     isinstance(cached_embeddings, list)
@@ -1409,7 +1388,7 @@ class LexiCacheModel:
             except Exception as e:
                 print(f"  Cache load failed, re-embedding: {e}")
 
-        # --- Cache miss: collect all examples then batch-embed ---
+        # Cache miss: collect and embed
         type_counts: Dict[str, int] = defaultdict(int)
         all_texts: List[str] = []
         all_labels: List[str] = []
@@ -1459,7 +1438,7 @@ class LexiCacheModel:
             print("  No CUAD seed examples found after filtering")
             return
 
-        # Batch embed all at once (batch_size=32 for speed)
+        # Batch embed all examples
         print(f"  Batch-embedding {len(all_texts)} CUAD seed examples...")
         try:
             with torch.no_grad():
@@ -1472,7 +1451,7 @@ class LexiCacheModel:
             self.support_texts.extend(all_spans)
             self.support_sources.extend(['seed_train'] * len(all_labels))
 
-            # Save cache for instant loading on next startup
+            # Save cache for faster next startup
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 torch.save({
@@ -1567,8 +1546,7 @@ class LexiCacheModel:
                     self.clause_colors = data.get('clause_colors', {})
                     learned_examples = data.get('learned_examples', [])
 
-                    # Only rebuild embeddings if support_set.pkl didn't
-                    # already provide them (e.g. pkl was deleted/corrupt).
+                    # Rebuild only when embeddings are missing
                     learned_already_loaded = any(
                         s == 'learned' for s in self.support_sources
                     )

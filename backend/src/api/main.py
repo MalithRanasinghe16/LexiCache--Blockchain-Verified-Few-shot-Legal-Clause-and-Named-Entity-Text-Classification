@@ -21,6 +21,7 @@ from src.deduplication import (
     create_verification_attempt,
     discard_document_data,
     get_cached_result,
+    get_changed_fields_meta,
     get_pending_teaches,
     get_verification_history,
     get_verification_state,
@@ -32,6 +33,7 @@ from src.deduplication import (
     rollback_open_cycle_data,
     seed_verification_baseline,
     should_discard_on_leave,
+    store_changed_fields_meta,
     store_result,
 )
 from src.history_store import (
@@ -219,6 +221,81 @@ def _apply_pending_teaches_to_results(
         patched.append(entry)
 
     return patched
+
+
+def _compute_raw_hash(text: str) -> str:
+    """SHA-256 of the raw (un-normalised) document text."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _detect_changed_fields(old_text: str, new_text: str) -> List[str]:
+    """
+    Return which normalisation placeholder types differ between the two raw texts.
+    Used to record what changed in a template-variant re-upload.
+    """
+    import re
+    changed: List[str] = []
+
+    date_pat = re.compile(
+        r'\b\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}\b'
+        r'|\b\d{4}[/\-.]\d{1,2}[/\-.]\d{1,2}\b'
+        r'|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b'
+        r'|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b',
+        re.IGNORECASE,
+    )
+    if set(date_pat.findall(old_text.lower())) != set(date_pat.findall(new_text.lower())):
+        changed.append("DATE")
+
+    entity_suffix = r'(?:inc\.?|llc|l\.l\.c\.|corp\.?|corporation|company|co\.?|ltd\.?|limited|lp|l\.p\.|llp|l\.l\.p\.)'
+    party_pat = re.compile(rf'\b(?:[a-z0-9&\'\\.-]+\s+){{0,7}}(?:{entity_suffix})\b', re.IGNORECASE)
+    if set(party_pat.findall(old_text.lower())) != set(party_pat.findall(new_text.lower())):
+        changed.append("PARTY")
+
+    amount_pat = re.compile(r'\$\s*\d{1,3}(?:,\d{3})*(?:\.\d+)?')
+    if set(amount_pat.findall(old_text)) != set(amount_pat.findall(new_text)):
+        changed.append("AMOUNT")
+
+    pct_pat = re.compile(r'\b\d+(?:\.\d+)?\s*%\b')
+    if set(pct_pat.findall(old_text)) != set(pct_pat.findall(new_text)):
+        changed.append("PERCENT")
+
+    return changed
+
+
+def _remap_clause_offsets(
+    clauses: List[Dict[str, Any]],
+    new_text: str,
+    new_page_texts: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Try to find each cached clause span in the new document text.
+
+    - If found: update start_idx / end_idx and page_number.
+    - If not found (span contains changed text like a date or party name):
+      clear offsets to -1 so the frontend knows the position is approximate.
+    """
+    remapped: List[Dict[str, Any]] = []
+    for clause in clauses:
+        c = dict(clause)
+        span = c.get("span", "")
+        if span:
+            idx = new_text.find(span)
+            if idx >= 0:
+                c["start_idx"] = idx
+                c["end_idx"] = idx + len(span)
+                c["display_start_idx"] = idx
+                c["display_end_idx"] = idx + len(span)
+                for page_info in new_page_texts:
+                    if page_info["start_char"] <= idx < page_info["end_char"]:
+                        c["page_number"] = page_info["page"]
+                        break
+            else:
+                c["start_idx"] = -1
+                c["end_idx"] = -1
+                c["display_start_idx"] = -1
+                c["display_end_idx"] = -1
+        remapped.append(c)
+    return remapped
 
 
 def _pin_to_ipfs(
@@ -455,7 +532,7 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
     content = await file.read()
 
     try:
-        # ── Step 1: Extract raw text from the uploaded file ──────────────────
+        # Step 1: extract raw text
         page_texts = []
         text: str = ""
         is_pdf = file.filename.lower().endswith('.pdf')
@@ -484,9 +561,10 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
 
         file_type = "pdf" if is_pdf else "docx"
 
-        # ── Step 2: Compute content hash & check Redis cache ─────────────────
+        # Step 2: compute hash and check cache
         fingerprints = compute_doc_fingerprints(text)
         doc_hash = str(fingerprints.get("primary_hash", "")) or compute_doc_hash(text)
+        raw_hash = _compute_raw_hash(text)
         print(f"[upload-file] doc_hash={doc_hash[:16]}... file={file.filename!r} ({len(text)} chars)")
 
         register_upload(doc_hash, user_id)
@@ -494,17 +572,40 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
         seed_verification_baseline(doc_hash, user_id, durable_history)
         cached = get_cached_result(fingerprints)
         if cached is not None:
-            # Cache HIT — rebuild the full response from stored data and return
-            # immediately.  The stored page_texts and extracted_text are used
-            # verbatim so the frontend receives an identical payload.
             cached_clauses = cached.get("clauses", [])
             cached_page_texts = cached.get("page_texts", page_texts)
             cached_extracted_text = cached.get("extracted_text", text)
             cached_file_type = cached.get("file_type", file_type)
             analyzed_at = cached.get("analyzed_at", "")
+            cached_raw_hash = cached.get("raw_hash")
+
+            # Check exact match vs template variant
+            is_exact = (cached_raw_hash == raw_hash) or (
+                cached_raw_hash is None and cached_extracted_text == text
+            )
+
+            if is_exact:
+                # Exact hit: return cached payload
+                cache_match_type = "exact"
+                response_clauses = cached_clauses
+                response_page_texts = cached_page_texts
+                response_extracted_text = cached_extracted_text
+                changed_fields: List[str] = []
+            else:
+                # Template variant: remap offsets for new text
+                cache_match_type = "template_variant"
+                changed_fields = _detect_changed_fields(cached_extracted_text, text)
+                response_clauses = _remap_clause_offsets(cached_clauses, text, page_texts)
+                response_page_texts = page_texts
+                response_extracted_text = text
+                store_changed_fields_meta(doc_hash, changed_fields)
+                print(
+                    f"[upload-file] Template variant detected for doc:{doc_hash[:16]}... "
+                    f"changed={changed_fields}"
+                )
 
             unknown_count = len([
-                c for c in cached_clauses
+                c for c in response_clauses
                 if str(c.get("clause_type", "")) == "Unknown clause"
             ])
             verification = get_verification_state(doc_hash, user_id, unknown_count)
@@ -512,26 +613,25 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
 
             return {
                 "status": "cache_hit",
+                "cache_match_type": cache_match_type,
                 "cached_at": analyzed_at,
+                "changed_fields": changed_fields,
                 "doc_hash": doc_hash,
-                "extracted_text": cached_extracted_text,
+                "extracted_text": response_extracted_text,
                 "extracted_text_preview": (
-                    cached_extracted_text[:500] + "..."
-                    if len(cached_extracted_text) > 500
-                    else cached_extracted_text
+                    response_extracted_text[:500] + "..."
+                    if len(response_extracted_text) > 500
+                    else response_extracted_text
                 ),
-                "page_count": len(cached_page_texts),
-                "page_texts": cached_page_texts,
-                "result": cached_clauses,
+                "page_count": len(response_page_texts),
+                "page_texts": response_page_texts,
+                "result": response_clauses,
                 "file_type": cached_file_type,
                 "verification": verification,
                 "history": history,
             }
 
-        # ── Step 3: Cache MISS — run the full model pipeline ─────────────────
-        # IMPORTANT: raw text is passed to predict_cuad without normalisation.
-        # Normalisation strips legal capitalisation and punctuation that the
-        # keyword heuristics depend on (e.g. "INDEMNIFICATION", "GOVERNING LAW").
+        # Step 3: cache miss, run full model pipeline
         result = model.predict_cuad(text)
 
         # Map each clause to its page number using char-offset ranges
@@ -544,13 +644,14 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
             if 'page_number' not in clause:
                 clause['page_number'] = 1
 
-        # ── Step 4: Persist result to Redis (non-fatal on failure) ───────────
+        # Step 4: store result in Redis
         store_result(
             doc_hash=fingerprints,
             clauses=result,
             page_texts=page_texts,
             extracted_text=text,
             file_type=file_type,
+            raw_hash=raw_hash,
         )
 
         unknown_count = len([r for r in result if r.get("clause_type") == "Unknown clause"])
@@ -754,6 +855,7 @@ async def verify_document(request: VerifyRequest):
                     page_texts=cached.get("page_texts", []),
                     extracted_text=extracted_text,
                     file_type=str(cached.get("file_type", "unknown")),
+                    raw_hash=cached.get("raw_hash"),
                 )
 
             clear_pending_teaches_for_user(request.doc_hash, request.user_id)
@@ -824,6 +926,7 @@ async def verify_document(request: VerifyRequest):
                 detail="Blockchain transaction succeeded but Redis history write failed",
             )
 
+        changed_fields = get_changed_fields_meta(request.doc_hash)
         attempt = create_verification_attempt(
             doc_hash=request.doc_hash,
             user_id=request.user_id,
@@ -835,6 +938,7 @@ async def verify_document(request: VerifyRequest):
             snapshot_hash=analysis_hash,
             geo_hash=geo_hash,
             geo_summary=geo_summary,
+            changed_fields=changed_fields,
         )
         if attempt is None:
             raise HTTPException(status_code=500, detail="Failed to persist verification attempt")

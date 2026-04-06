@@ -64,7 +64,7 @@ export default function PdfViewer({
 }: Props) {
   const LINE_GROUP_TOLERANCE = 6;
   const canvasRefs = useRef<HTMLCanvasElement[]>([]);
-  // Refs to each page container div for scrolling
+  // Page refs for scrolling
   const pageContainerRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const isSameClause = useCallback(
@@ -246,7 +246,7 @@ export default function PdfViewer({
     [],
   );
 
-  // Convert any color to rgba with given opacity
+  // Convert color to rgba
   const colorWithOpacity = useCallback(
     (color: string, opacity: number): string => {
       if (color.startsWith("hsl")) {
@@ -268,7 +268,7 @@ export default function PdfViewer({
     [],
   );
 
-  // ── Helpers for text normalization and line grouping ───────────────────
+  // Text normalization and line grouping helpers
   const normalizeForMatch = useCallback(
     (text: string): string =>
       text
@@ -322,7 +322,7 @@ export default function PdfViewer({
         }
       });
 
-      // Build line groups from all positioned items
+      // Group positioned items by line
       type PositionedItem = {
         item: TextItem;
         x: number;
@@ -386,7 +386,7 @@ export default function PdfViewer({
     [],
   );
 
-  // Helper: produce line-level position rectangles from matched item indices
+  // Build line rectangles from matched items
   const lineRectsFromItems = useCallback(
     (
       matchedItemIndices: Set<number>,
@@ -413,7 +413,7 @@ export default function PdfViewer({
       let lineIndicesToDraw: Set<number>;
 
       if (extendToFullClause && matchedLineIndices.size > 0) {
-        // Extend to all lines between the first and last matched line
+        // Fill all lines between first and last
         const sorted = Array.from(matchedLineIndices).sort((a, b) => a - b);
         const minLine = sorted[0];
         const maxLine = sorted[sorted.length - 1];
@@ -441,7 +441,7 @@ export default function PdfViewer({
     [pageWidth],
   );
 
-  // Find text positions for a given span in a page
+  // Find span positions in a page
   const findTextPositions = useCallback(
     (
       span: string,
@@ -451,7 +451,7 @@ export default function PdfViewer({
       if (!span || !pageContent || pageContent.items.length === 0) return [];
 
       const normalizedSpan = normalizeForMatch(span);
-      // Use 500 chars for clause highlights (up from 200), 40 for search
+      // Use a longer window for clause highlighting
       const searchLength = isSearch
         ? Math.min(normalizedSpan.length, 40)
         : Math.min(normalizedSpan.length, 500);
@@ -460,7 +460,7 @@ export default function PdfViewer({
       const { pageText, charToItemIdx, allLines, itemToLineIdx } =
         buildPageIndex(pageContent);
 
-      // Strategy 1: Exact substring match (try progressively shorter)
+      // Strategy 1: exact substring match
       let searchIdx = pageText.indexOf(searchText);
       if (searchIdx === -1 && searchText.length > 120)
         searchIdx = pageText.indexOf(searchText.substring(0, 120));
@@ -471,11 +471,11 @@ export default function PdfViewer({
       if (searchIdx === -1 && searchText.length > 30)
         searchIdx = pageText.indexOf(searchText.substring(0, 30));
 
-      // Strategy 2: Progressive word matching — handles whitespace/punctuation mismatches
+      // Strategy 2: word-based match
       if (searchIdx === -1) {
         const words = normalizedSpan.split(" ").filter((w) => w.length > 2);
 
-        // Try sequences of 5, 4, 3 consecutive significant words
+        // Try 5/4/3-word windows
         for (
           let windowSize = Math.min(5, words.length);
           windowSize >= 3 && searchIdx === -1;
@@ -492,18 +492,17 @@ export default function PdfViewer({
         }
       }
 
-      // Strategy 3: Find the full clause extent using the WHOLE normalized span text
-      // This catches the rest of the clause beyond the initial search window
+      // Strategy 3: extend match to full span
       if (searchIdx !== -1) {
-        // Try to extend the match to cover as much of the full normalizedSpan as possible
+        // Extend match as far as possible
         let bestMatchEnd = Math.min(
           searchIdx + searchText.length,
           pageText.length,
         );
 
-        // If we have more span text, see if the full span exists starting at searchIdx
+        // Check if full span starts here
         if (normalizedSpan.length > searchLength) {
-          // Try to match progressively more of the full span
+          // Try longer prefixes first
           const fullMatch = pageText.indexOf(normalizedSpan, searchIdx);
           if (fullMatch === searchIdx) {
             bestMatchEnd = Math.min(
@@ -511,7 +510,7 @@ export default function PdfViewer({
               pageText.length,
             );
           } else {
-            // Try a longer portion than searchLength
+            // Fallback to smaller prefixes
             for (
               let tryLen = normalizedSpan.length;
               tryLen > searchLength;
@@ -538,7 +537,7 @@ export default function PdfViewer({
             pageContent,
             allLines,
             itemToLineIdx,
-            !isSearch, // extend to full clause for non-search highlights
+            !isSearch, // extend full clause for clause highlight
           );
         }
       }
@@ -554,7 +553,7 @@ export default function PdfViewer({
       pageContent: PageTextContent,
       pageNumber: number,
     ) => {
-      // Strategy A: Text-based matching (try each candidate)
+      // Strategy A: text matching
       const candidates = getClauseSearchCandidates(clause, pageNumber);
       for (const candidate of candidates) {
         const positions = findTextPositions(candidate, pageContent);
@@ -563,16 +562,14 @@ export default function PdfViewer({
         }
       }
 
-      // Strategy B: Character-offset-based fallback
-      // Use backend-provided char offsets + page boundaries to estimate
-      // which lines in the page contain the clause.
+      // Strategy B: char-offset fallback
       const range = getClauseRange(clause);
       const pageInfo = getPageInfo(pageNumber);
       if (range && pageInfo && pageInfo.end_char > pageInfo.start_char) {
         const { pageText, charToItemIdx, allLines, itemToLineIdx } =
           buildPageIndex(pageContent);
 
-        // Map clause char range to proportional position within the page
+        // Map clause range into page text
         const pageLen = pageInfo.end_char - pageInfo.start_char;
         const clauseStartInPage = Math.max(
           0,
@@ -583,7 +580,7 @@ export default function PdfViewer({
           range.end - pageInfo.start_char,
         );
         if (clauseEndInPage > clauseStartInPage && pageText.length > 0) {
-          // Map char offsets to approximate positions in normalized page text
+          // Convert char offsets to normalized offsets
           const ratio = pageText.length / pageLen;
           const normStart = Math.floor(clauseStartInPage * ratio);
           const normEnd = Math.min(
@@ -729,7 +726,7 @@ export default function PdfViewer({
     [buildPageIndex, pageWidth],
   );
 
-  // ── Helper for exact-position scrolling ──────────────────────────────────────────────
+  // Scroll to exact position
   const scrollToExactPosition = useCallback(
     (
       pageIndex: number,
@@ -769,7 +766,7 @@ export default function PdfViewer({
     [],
   );
 
-  // ── Auto-scroll to the page containing the active clause ───────────────
+  // Auto-scroll to active clause
   useEffect(() => {
     if (!activeClause || pageTextContents.length === 0) {
       return;
@@ -792,7 +789,7 @@ export default function PdfViewer({
       }
     }
 
-    // Find the first page where the active clause text appears
+    // Fallback: find first matching page
     for (let i = 0; i < pageTextContents.length; i++) {
       const positions = findClausePositions(
         activeClause,
@@ -811,7 +808,7 @@ export default function PdfViewer({
     scrollToExactPosition,
   ]);
 
-  // ── Auto-scroll to the exact position of the active search match ───────
+  // Auto-scroll to active search match
   useEffect(() => {
     if (activeSearchPageIndex !== null && activeSearchCharOffset !== null) {
       const pageContent = pageTextContents[activeSearchPageIndex];
@@ -846,7 +843,7 @@ export default function PdfViewer({
     scrollToExactPosition,
   ]);
 
-  // ── Draw clause + active + search highlights on canvas ────────────────
+  // Draw highlights
   const drawHighlights = useCallback(() => {
     if (!result?.result || pageTextContents.length === 0) return;
 
@@ -870,7 +867,7 @@ export default function PdfViewer({
         canvas.height = pageHeights[pageIndex] || 1100;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Pass 1/2: Draw clause overlays only when search mode is inactive
+        // Draw clause highlights when search is off
         if (!hasActiveSearch) {
           result.result.forEach((clause: ClauseResult) => {
             if (isStructuralClause(clause)) return;
@@ -881,7 +878,7 @@ export default function PdfViewer({
               clause.confidence < minConfidence / 100
             )
               return;
-            // Skip active clause — drawn separately below with stronger style
+            // Skip active clause; draw it later with stronger style
             if (activeClause && isSameClause(clause, activeClause)) return;
 
             const color =
@@ -923,7 +920,7 @@ export default function PdfViewer({
           }
         }
 
-        // Pass 3: Draw search results
+        // Draw search results
         if (highlightedText && searchMatches.length > 0) {
           const pageMatches = searchMatches.filter(
             (m) => m.pageIndex === pageIndex,

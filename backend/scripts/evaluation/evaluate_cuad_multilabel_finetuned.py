@@ -53,10 +53,7 @@ from sklearn.metrics import (
 from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
-
-# ---------------------------------------------------------------------------
 # CUAD 41 canonical categories
-# ---------------------------------------------------------------------------
 CUAD_41_CATEGORIES: List[str] = [
     "Document Name", "Parties", "Agreement Date", "Effective Date",
     "Expiration Date", "Renewal Term", "Notice Period To Terminate Renewal",
@@ -75,10 +72,7 @@ CUAD_41_CATEGORIES: List[str] = [
 ]
 NUM_LABELS = len(CUAD_41_CATEGORIES)
 CAT_TO_IDX: Dict[str, int] = {c: i for i, c in enumerate(CUAD_41_CATEGORIES)}
-
-# ---------------------------------------------------------------------------
 # Label aliases (same as training script)
-# ---------------------------------------------------------------------------
 LABEL_ALIASES: Dict[str, str] = {
     "termination": "Termination For Convenience",
     "termination for convenience": "Termination For Convenience",
@@ -149,11 +143,7 @@ def map_clause_type(raw: str) -> Optional[str]:
         if cat.lower() == lower:
             return cat
     return None
-
-
-# ---------------------------------------------------------------------------
 # Keyword scoring (symbolic component of the hybrid)
-# ---------------------------------------------------------------------------
 # Compact keyword map: category → list of (keyword, weight) tuples.
 # Weights: 3=highly specific, 2=specific phrase, 1=generic term.
 KEYWORD_MAP: Dict[str, List[Tuple[str, float]]] = {
@@ -354,12 +344,7 @@ def compute_keyword_scores(text: str) -> np.ndarray:
         max_score = _MAX_KW_SCORE.get(cat, 1.0)
         scores[idx] = min(1.0, raw / max(max_score, 1.0))
     return scores
-
-
-# ---------------------------------------------------------------------------
 # Fine-tuned model (mirrors train_cuad_multilabel_finetune.py)
-# ---------------------------------------------------------------------------
-
 class LegalBERTMultiLabel(nn.Module):
     def __init__(
         self,
@@ -470,12 +455,7 @@ def encode_document(
     mask_t = torch.tensor([attention_mask_list], dtype=torch.long, device=device)
     n_t = torch.tensor([n_real], dtype=torch.long, device=device)
     return ids_t, mask_t, n_t
-
-
-# ---------------------------------------------------------------------------
 # Ground-truth extraction
-# ---------------------------------------------------------------------------
-
 def extract_gt_labels(item: dict) -> np.ndarray:
     """Return a [41] binary array: 1 if contract has ≥1 non-empty annotation."""
     full_text: str = item.get("full_text", "")
@@ -498,12 +478,7 @@ def extract_gt_labels(item: dict) -> np.ndarray:
         if canonical and canonical in CAT_TO_IDX:
             label_vec[CAT_TO_IDX[canonical]] = 1.0
     return label_vec
-
-
-# ---------------------------------------------------------------------------
 # Main evaluation
-# ---------------------------------------------------------------------------
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Hybrid (fine-tuned Legal-BERT + keyword) CUAD evaluation"
@@ -548,10 +523,7 @@ def main() -> None:
     print(f"  Threshold     : {args.threshold}")
     print(f"  Device        : {device}")
     print("=" * 70)
-
-    # -----------------------------------------------------------------------
     # Load fine-tuned model (unless keyword-only)
-    # -----------------------------------------------------------------------
     model: Optional[LegalBERTMultiLabel] = None
     tokenizer = None
     model_cfg: dict = {}
@@ -570,10 +542,7 @@ def main() -> None:
         print(f"  Chunk config: {args.max_chunks} chunks × {args.chunk_size} tokens")
     else:
         print("\n[1/3] Keyword-only mode — skipping neural model load.")
-
-    # -----------------------------------------------------------------------
     # Load test contracts
-    # -----------------------------------------------------------------------
     print(f"\n[2/3] Loading test contracts from {test_dir} ...")
     test_files = sorted(test_dir.glob("*.json"))
     if args.max_files > 0:
@@ -583,10 +552,7 @@ def main() -> None:
     if len(test_files) == 0:
         print(f"ERROR: No JSON files found in {test_dir}")
         sys.exit(1)
-
-    # -----------------------------------------------------------------------
     # Inference loop
-    # -----------------------------------------------------------------------
     print(f"\n[3/3] Running inference ...")
 
     Y_true: List[np.ndarray] = []
@@ -646,10 +612,7 @@ def main() -> None:
             "found": int(found),
             "recall": round(topk_recall, 4),
         })
-
-    # -----------------------------------------------------------------------
     # Aggregate metrics
-    # -----------------------------------------------------------------------
     Y_true_arr = np.vstack(Y_true)   # [N, 41]
     Y_pred_arr = np.vstack(Y_pred)   # [N, 41]
 
@@ -682,10 +645,7 @@ def main() -> None:
             "f1": round(float(r.get("f1-score", 0.0)), 6),
             "support": support,
         }
-
-    # -----------------------------------------------------------------------
     # Print summary table
-    # -----------------------------------------------------------------------
     print("\n" + "=" * 70)
     print("HYBRID CUAD DOCUMENT-LEVEL EVALUATION RESULTS")
     print(f"  Neural weight={neural_weight:.2f}  Keyword weight={kw_weight:.2f}  "
@@ -712,10 +672,7 @@ def main() -> None:
         print(f"\n  Zero-F1 types ({len(zero_f1)}): {', '.join(zero_f1)}")
 
     print("\n" + "=" * 70)
-
-    # -----------------------------------------------------------------------
     # Save results to JSON
-    # -----------------------------------------------------------------------
     results = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "description": (

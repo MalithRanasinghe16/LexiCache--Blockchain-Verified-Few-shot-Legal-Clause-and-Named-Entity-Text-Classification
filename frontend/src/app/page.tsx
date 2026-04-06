@@ -16,7 +16,7 @@ import ResultsSidebar from "./components/ResultsSidebar";
 import RenameModal from "./components/RenameModal";
 
 export default function Home() {
-  // ── File & analysis state ──────────────────────────────────────────────
+  // File and analysis state
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -34,7 +34,7 @@ export default function Home() {
   const [reminderDismissed, setReminderDismissed] = useState(false);
   const discardSentRef = useRef(false);
 
-  // ── PDF viewer state ───────────────────────────────────────────────────
+  // PDF viewer state
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageWidth, setPageWidth] = useState(780);
   const [pageHeights, setPageHeights] = useState<number[]>([]);
@@ -44,7 +44,7 @@ export default function Home() {
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [isClient, setIsClient] = useState(false);
 
-  // ── Filter & search state ──────────────────────────────────────────────
+  // Filter and search state
   const [selectedClauseTypes, setSelectedClauseTypes] = useState<Set<string>>(
     new Set(),
   );
@@ -52,10 +52,10 @@ export default function Home() {
   const [showFilters, setShowFilters] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [highlightedText, setHighlightedText] = useState("");
-  // Active clause: tracks which clause was clicked → drives PDF scroll + highlight
+  // Selected clause for highlight/scroll
   const [activeClause, setActiveClause] = useState<ClauseResult | null>(null);
 
-  // ── Search match state ──────────────────────────────────────────────────
+  // Search matches
   const [searchMatches, setSearchMatches] = useState<SearchMatch[]>([]);
   const [currentSearchMatchIndex, setCurrentSearchMatchIndex] = useState(0);
   const [activeSearchPageIndex, setActiveSearchPageIndex] = useState<
@@ -65,17 +65,17 @@ export default function Home() {
     number | null
   >(null);
 
-  // ── Color map ──────────────────────────────────────────────────────────
+  // Clause colors
   const [colorMap, setColorMap] = useState<Record<string, string>>({});
 
-  // ── Rename/teach modal state ───────────────────────────────────────────
+  // Rename modal state
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [selectedUnknownClause, setSelectedUnknownClause] =
     useState<ClauseResult | null>(null);
   const [newClauseTypeName, setNewClauseTypeName] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
 
-  // ── Configure PDF.js worker (client-only) ─────────────────────────────
+  // Configure PDF worker
   useEffect(() => {
     setIsClient(true);
 
@@ -104,7 +104,7 @@ export default function Home() {
     configurePdfWorker();
   }, []);
 
-  // ── Responsive PDF width ───────────────────────────────────────────────
+  // Responsive PDF width
   useEffect(() => {
     const handleResize = () =>
       setPageWidth(Math.min(780, window.innerWidth - 120));
@@ -113,7 +113,7 @@ export default function Home() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // ── Color helpers ──────────────────────────────────────────────────────
+  // Color helpers
   const generateRandomColor = useCallback((): string => {
     const hue = Math.floor(Math.random() * 360);
     const saturation = 60 + Math.floor(Math.random() * 30);
@@ -121,7 +121,7 @@ export default function Home() {
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
   }, []);
 
-  // Initialize colors when results arrive
+  // Set colors when results load
   useEffect(() => {
     if (result?.result && result.result.length > 0) {
       const newColorMap: Record<string, string> = { ...colorMap };
@@ -141,7 +141,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result]);
 
-  // ── PDF text extraction ────────────────────────────────────────────────
+  // Extract PDF text
   const extractTextContent = useCallback(
     async (pdf: any) => {
       const contents: PageTextContent[] = [];
@@ -179,7 +179,7 @@ export default function Home() {
     if (pdfDocument) extractTextContent(pdfDocument);
   }, [pdfDocument, extractTextContent]);
 
-  // ── Handlers ───────────────────────────────────────────────────────────
+  // Handlers
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0] || null;
     setFile(selectedFile);
@@ -300,12 +300,12 @@ export default function Home() {
       setShowRenameModal(true);
     } else {
       console.log("Setting active clause for highlighting and scroll");
-      // Set active clause to trigger PDF scroll and highlight
+      // Trigger clause highlight and scroll
       setActiveClause(clause);
-      // Also set highlighted text for DOCX rendering and search indicator
+      // Keep text highlight in sync
       setHighlightedText(displaySpan);
 
-      // DOCX: scroll to the <mark> element
+      // For DOCX, scroll to matching mark
       if (fileType !== "pdf") {
         console.log("DOCX: Scrolling to mark element");
         setTimeout(() => {
@@ -339,7 +339,7 @@ export default function Home() {
     setColorMap(newColorMap);
   };
 
-  // ── Live search: scan pages for matches whenever searchTerm changes ────
+  // Live search across pages
   useEffect(() => {
     const term = searchTerm.trim();
     if (!term || pageTextContents.length === 0) {
@@ -351,7 +351,7 @@ export default function Home() {
       return;
     }
 
-    // Normalize the search term
+    // Normalize search input
     const normalizedTerm = term
       .toLowerCase()
       .replace(/[^\w\s]/g, " ")
@@ -381,7 +381,7 @@ export default function Home() {
         }
       });
 
-      // Find all occurrences of the search term in this page
+      // Find all matches on this page
       let startPos = 0;
       let matchIndexInPage = 0;
       while (true) {
@@ -394,14 +394,14 @@ export default function Home() {
           length: normalizedTerm.length,
         });
         matchIndexInPage++;
-        startPos = idx + 1; // move past to find next occurrence
+        startPos = idx + 1; // move forward
       }
     });
 
     setSearchMatches(matches);
     setHighlightedText(term);
 
-    // Reset to first match
+    // Jump to first match
     if (matches.length > 0) {
       setCurrentSearchMatchIndex(0);
       setActiveSearchPageIndex(matches[0].pageIndex);
@@ -419,7 +419,7 @@ export default function Home() {
     setCurrentSearchMatchIndex(nextIdx);
     setActiveSearchPageIndex(searchMatches[nextIdx].pageIndex);
     setActiveSearchCharOffset(searchMatches[nextIdx].charOffset);
-    setActiveClause(null); // clear clause highlight when navigating search
+    setActiveClause(null); // clear clause highlight
   }, [searchMatches, currentSearchMatchIndex]);
 
   const handleSearchPrev = useCallback(() => {
@@ -431,7 +431,7 @@ export default function Home() {
     setCurrentSearchMatchIndex(prevIdx);
     setActiveSearchPageIndex(searchMatches[prevIdx].pageIndex);
     setActiveSearchCharOffset(searchMatches[prevIdx].charOffset);
-    setActiveClause(null); // clear clause highlight when navigating search
+    setActiveClause(null); // clear clause highlight
   }, [searchMatches, currentSearchMatchIndex]);
 
   const handleSearchClear = useCallback(() => {
@@ -475,7 +475,7 @@ export default function Home() {
           ...prev,
           [newClauseTypeName.trim()]: newColor,
         }));
-        // Ensure the newly named type is visible in the sidebar immediately
+        // Show the new type in the sidebar
         setSelectedClauseTypes((prev) => {
           const next = new Set(prev);
           next.add(newClauseTypeName.trim());
@@ -507,7 +507,7 @@ export default function Home() {
     setNewClauseTypeName("");
   };
 
-  // Warn user on refresh/close whenever this document has NOT been verified yet.
+  // Warn before leaving if not verified
   useEffect(() => {
     const shouldWarn = Boolean(
       result && docHash && verification?.show_verify_button,
@@ -525,9 +525,7 @@ export default function Home() {
     };
   }, [result, docHash, verification?.show_verify_button]);
 
-  // If the user leaves anyway, immediately discard unverified document data.
-  // This must also apply after teaching unknown clauses, as long as there is
-  // an open verification cycle for the document.
+  // Discard unverified data if user leaves
   useEffect(() => {
     const shouldDiscardOnLeave = Boolean(
       result && docHash && verification?.show_verify_button,
@@ -556,7 +554,7 @@ export default function Home() {
           body: payload,
           keepalive: true,
         }).catch(() => {
-          // best-effort discard during unload
+          // best effort on unload
         });
       }
     };
@@ -566,7 +564,7 @@ export default function Home() {
     };
 
     const handleOffline = () => {
-      // Explicitly treat connection loss as a discard trigger.
+      // Treat offline as a discard trigger
       sendDiscard();
     };
 
@@ -673,19 +671,19 @@ export default function Home() {
         setHistory(data.history);
       }
     } catch {
-      // non-fatal: keep currently loaded history
+      // keep current history
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  // Render
   return (
     <main className="min-h-screen px-4 py-5 lg:px-8 lg:py-8">
       <div className="mx-auto max-w-screen-2xl overflow-hidden rounded-3xl border border-line bg-paper shadow-[0_26px_70px_rgba(66,55,40,0.16)]">
-        {/* ── Header ── */}
+        {/* Header */}
         <AppHeader />
 
         {!result ? (
-          /* ── Upload Screen ── */
+          /* Upload screen */
           <UploadForm
             file={file}
             loading={loading}
@@ -694,7 +692,7 @@ export default function Home() {
             onSubmit={handleSubmit}
           />
         ) : (
-          /* ── Analysis Screen ── */
+          /* Analysis screen */
           <div className="flex flex-col lg:flex-row">
             <DocumentViewer
               file={file}
@@ -750,7 +748,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── Rename / Teach Modal ── */}
+        {/* Rename modal */}
         <RenameModal
           isOpen={showRenameModal}
           clause={selectedUnknownClause}

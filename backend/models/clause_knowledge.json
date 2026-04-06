@@ -137,6 +137,20 @@
       ],
       "count": 1,
       "first_learned": "2026-03-24T02:36:59.700376"
+    },
+    "Governing Law": {
+      "examples": [
+        "This Agreement is entered into on 30 March 2026 between Velmora Digital Platforms Inc. and Quantisara Systems Corporation. This Agreement shall be governed by the laws of State of New York, United Sta"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-31T01:36:31.628252"
+    },
+    "Performance Standards": {
+      "examples": [
+        "oversight necessary to ensure that the services are performed in a timely and professional manner. The Service Provider shall maintain adequate personnel, technical resources, and managerial oversight"
+      ],
+      "count": 1,
+      "first_learned": "2026-03-31T01:36:32.549762"
     }
   },
   "clause_colors": {
@@ -155,7 +169,9 @@
     "Key Personnel Clause": "hsl(353, 69%, 43%)",
     "Progress Reporting Clause": "hsl(133, 87%, 53%)",
     "Party Definition Clause": "hsl(12, 64%, 50%)",
-    "Milestone Clause": "hsl(14, 85%, 40%)"
+    "Milestone Clause": "hsl(14, 85%, 40%)",
+    "Governing Law": "hsl(338, 71%, 46%)",
+    "Performance Standards": "hsl(8, 89%, 41%)"
   },
   "learned_examples": [
     {
@@ -10565,9 +10581,17 @@
     {
       "clause_type": "Milestone Clause",
       "text": "deliverables, performance metrics, acceptance testing procedures, and risk mitigation protocols as described in Schedule 1 (Statement of Technical Work)."
+    },
+    {
+      "clause_type": "Governing Law",
+      "text": "This Agreement is entered into on 30 March 2026 between Velmora Digital Platforms Inc. and Quantisara Systems Corporation. This Agreement shall be governed by the laws of State of New York, United States."
+    },
+    {
+      "clause_type": "Performance Standards",
+      "text": "oversight necessary to ensure that the services are performed in a timely and professional manner. The Service Provider shall maintain adequate personnel, technical resources, and managerial oversight necessary to ensure that the services are performed in a timely and professional manner. The Service Provider shall maintain adequate personnel, technical resources, and managerial oversight necessary to ensure that the services are performed in a timely and professional manner."
     }
   ],
-  "timestamp": "2026-03-24T02:37:00.357958",
-  "total_learned": 19,
-  "total_examples": 2602
+  "timestamp": "2026-03-31T01:36:32.864607",
+  "total_learned": 21,
+  "total_examples": 2604
 }
