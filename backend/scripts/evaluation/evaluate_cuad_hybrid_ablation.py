@@ -1,12 +1,4 @@
-"""
-LexiCache Hybrid Ablation Study
-Compares:
-- Pure Keyword-only (neural_weight=0.0)
-- Pure Neural-only (neural_weight=1.0)
-- Hybrid with different KW weights (0.3, 0.4, 0.5, 0.6, 0.7)
-
-Perfect for Table 8.2 in Chapter 8
-"""
+"""LexiCache Hybrid Ablation Study Compares: - Pure Keyword-only (neural_weight=0.0) - Pure Neural-only (neural_weight=1.0) - Hybrid with different KW weights (0.3, 0.4, 0.5, 0.6, 0.7"""
 
 import argparse
 import json

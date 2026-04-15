@@ -1,35 +1,4 @@
-"""
-Hybrid evaluation: Fine-tuned Legal-BERT + keyword scoring on CUAD test split.
-
-This script evaluates the document-level multi-label clause classification
-performance of the hybrid system:
-
-    final_score[i] = α × neural_score[i] + (1-α) × keyword_score[i]
-
-where:
-  - neural_score[i]  = sigmoid output of fine-tuned Legal-BERT for class i
-  - keyword_score[i] = normalised keyword hit score for CUAD category i
-  - α (neural_weight) is tunable via --neural-weight (default 0.65)
-
-Usage:
-    cd backend
-    $env:PYTHONPATH = "."
-
-    # Default hybrid run (requires trained model):
-    python scripts/evaluation/evaluate_cuad_multilabel_finetuned.py
-
-    # Keyword-only baseline (no fine-tuned model needed):
-    python scripts/evaluation/evaluate_cuad_multilabel_finetuned.py --keyword-only
-
-    # Neural-only:
-    python scripts/evaluation/evaluate_cuad_multilabel_finetuned.py --neural-weight 1.0
-
-    # Tune fusion weight:
-    python scripts/evaluation/evaluate_cuad_multilabel_finetuned.py --neural-weight 0.80
-
-Output:
-    backend/experiments/results/cuad_hybrid_finetuned_results.json
-"""
+"""Hybrid evaluation: Fine-tuned Legal-BERT + keyword scoring on CUAD test split."""
 
 from __future__ import annotations
 
@@ -144,8 +113,6 @@ def map_clause_type(raw: str) -> Optional[str]:
             return cat
     return None
 # Keyword scoring (symbolic component of the hybrid)
-# Compact keyword map: category → list of (keyword, weight) tuples.
-# Weights: 3=highly specific, 2=specific phrase, 1=generic term.
 KEYWORD_MAP: Dict[str, List[Tuple[str, float]]] = {
     "Document Name": [
         ("this agreement", 2), ("master agreement", 2), ("master services agreement", 3),
@@ -328,11 +295,7 @@ for _cat, _kws in KEYWORD_MAP.items():
 
 
 def compute_keyword_scores(text: str) -> np.ndarray:
-    """
-    Return a [41] float array of normalised keyword scores in [0, 1].
-    Score[i] = sum of weights of matched keywords for category i,
-               normalised by the maximum possible score for that category.
-    """
+    """Return a [41] float array of normalised keyword scores in [0, 1]."""
     text_lower = text.lower()
     scores = np.zeros(NUM_LABELS, dtype=np.float32)
     for cat, kws in KEYWORD_MAP.items():

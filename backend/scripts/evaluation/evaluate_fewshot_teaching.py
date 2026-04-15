@@ -1,30 +1,4 @@
-"""
-Few-Shot Teaching Accuracy Evaluation for LexiCache
-=====================================================
-Evaluates how well the model adapts to unknown/rare clause types
-when users provide N teaching examples (1-10 shot).
-
-Experimental Design
--------------------
-- Six target clause types are treated as completely unknown:
-    4 with F1=0.0 in standard evaluation  +  2 borderline (F1<0.35)
-- Each target type is stripped from the seed support set before the experiment
-  (zero-knowledge baseline — model starts with NO examples of these types).
-- Teaching examples are drawn from the CUAD *train* split.
-- Test examples are drawn from the CUAD *test* split (never seen during teaching).
-- For each shot count N in SHOT_COUNTS:
-    - N_TRIALS independent trials are run (different random teach subsets each time)
-    - Per trial: teach N spans per class → evaluate on ALL test spans
-- Metrics: per-class F1 / Precision / Recall, Macro F1, Micro F1, avg confidence
-- Charts saved to experiments/results/fewshot_teaching/
-
-Usage
------
-    python scripts/evaluation/evaluate_fewshot_teaching.py
-    python scripts/evaluation/evaluate_fewshot_teaching.py --train-dir data/processed/cuad/train
-                                                           --test-dir  data/processed/cuad/test
-                                                           --max-shots 10 --trials 5
-"""
+"""Few-Shot Teaching Accuracy Evaluation for LexiCache ===================================================== Evaluates how well the model adapts to unknown/rare clause types when user"""
 
 import argparse
 import copy
@@ -124,10 +98,7 @@ def restore(model: LexiCacheModel,
 
 
 def teach_in_memory(model: LexiCacheModel, text: str, label: str) -> None:
-    """
-    Teach one example without touching disk.
-    Mirrors learn_from_feedback() but skips _save_support_set / _save_knowledge_base.
-    """
+    """Teach one example without touching disk."""
     normalized = normalize_text(text)
     with torch.no_grad():
         emb  = model.model([normalized], batch_size=1)
@@ -154,15 +125,7 @@ def teach_in_memory(model: LexiCacheModel, text: str, label: str) -> None:
 # Evaluation helper
 def evaluate(model: LexiCacheModel,
              test_spans: Dict[str, List[str]]) -> Dict:
-    """
-    Classify every test span for every target type and compute metrics.
-
-    Returns a dict with:
-        per_class[type] = {precision, recall, f1, avg_confidence, tp, fp, fn}
-        macro_f1, macro_precision, macro_recall
-        micro_f1, micro_precision, micro_recall
-        avg_confidence   (over all correctly predicted spans)
-    """
+    """Classify every test span for every target type and compute metrics."""
     y_true: List[str] = []
     y_pred: List[str] = []
     confidences: List[float] = []
@@ -448,7 +411,6 @@ def run(args: argparse.Namespace) -> None:
     # Save the baseline (stripped) state — restored between every trial
     baseline = snapshot(model)
     # Experiment loop
-    # results[shot_count] = List[metrics_dict]  (one entry per trial)
     results: Dict[int, List[Dict]] = {n: [] for n in shot_counts}
 
     for n_shot in shot_counts:

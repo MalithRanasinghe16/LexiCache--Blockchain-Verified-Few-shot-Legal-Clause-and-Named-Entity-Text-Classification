@@ -1,23 +1,4 @@
-"""
-Fine-tune Legal-BERT for document-level multi-label CUAD clause classification.
-
-Hybrid approach: fine-tuned Legal-BERT (neural) + keyword scoring (symbolic).
-The neural component learns semantic representations; the keyword component
-provides high-precision signals for well-defined clause types.
-
-Usage:
-    cd backend
-    $env:PYTHONPATH = "."
-    python scripts/training/train_cuad_multilabel_finetune.py
-
-    # With custom args:
-    python scripts/training/train_cuad_multilabel_finetune.py \
-        --epochs 8 --batch-size 4 --lr-encoder 2e-5 --max-chunks 6
-
-Output:
-    models/cuad_multilabel_finetuned/final_model.pth
-    models/cuad_multilabel_finetuned/config.json
-"""
+"""Fine-tune Legal-BERT for document-level multi-label CUAD clause classification."""
 
 from __future__ import annotations
 
@@ -138,16 +119,7 @@ def map_clause_type(raw: str) -> Optional[str]:
     return None
 # Dataset
 class CUADMultiLabelDataset(Dataset):
-    """
-    Document-level multi-label dataset for CUAD.
-
-    Each sample is a full contract text with a 41-dimensional binary label
-    vector: label[i] = 1 if the contract contains at least one non-empty
-    annotation for CUAD_41_CATEGORIES[i].
-
-    Long documents are split into fixed-size chunks; the model encodes each
-    chunk independently and mean-pools the [CLS] embeddings.
-    """
+    """Document-level multi-label dataset for CUAD."""
 
     def __init__(
         self,
@@ -266,14 +238,7 @@ class CUADMultiLabelDataset(Dataset):
         }
 # Model
 class LegalBERTMultiLabel(nn.Module):
-    """
-    Legal-BERT encoder with a 41-class sigmoid classification head.
-
-    For long documents, the input is split into `max_chunks` chunks of
-    `chunk_size` tokens. Each chunk is encoded independently; the [CLS]
-    embeddings are mean-pooled (over non-padding chunks) before the
-    classification head.
-    """
+    """Legal-BERT encoder with a 41-class sigmoid classification head."""
 
     def __init__(
         self,
@@ -285,7 +250,6 @@ class LegalBERTMultiLabel(nn.Module):
         self.encoder = AutoModel.from_pretrained(encoder_name)
         
         # Enable gradient checkpointing to drastically reduce memory usage
-        # during the 'unfrozen' training epochs.
         if hasattr(self.encoder, "gradient_checkpointing_enable"):
             self.encoder.gradient_checkpointing_enable()
             
@@ -319,11 +283,7 @@ class LegalBERTMultiLabel(nn.Module):
         return self.classifier(pooled)              # [B, num_labels]
 # Training helpers
 def compute_pos_weights(dataset: CUADMultiLabelDataset) -> torch.Tensor:
-    """
-    Compute per-class positive weights for BCEWithLogitsLoss.
-    pos_weight[i] = (N - n_pos[i]) / n_pos[i]  (clipped to [1, 20])
-    This up-weights rare positive classes to counteract label imbalance.
-    """
+    """Compute per-class positive weights for BCEWithLogitsLoss."""
     N = len(dataset)
     counts = torch.zeros(NUM_LABELS)
     for _, lv in dataset.samples:
@@ -395,11 +355,7 @@ def evaluate_split(
     threshold: float = 0.5,
     per_class_thresholds: Optional[np.ndarray] = None,
 ) -> Dict[str, float]:
-    """Evaluate on a DataLoader; return macro/micro F1.
-
-    If per_class_thresholds is provided (shape [num_labels]), each label uses
-    its own threshold instead of the global one.
-    """
+    """Evaluate on a DataLoader; return macro/micro F1."""
     from sklearn.metrics import f1_score, precision_score, recall_score
 
     Y_prob, Y_true = collect_probs(model, loader, device)
@@ -427,11 +383,7 @@ def tune_per_class_thresholds(
     Y_true: np.ndarray,
     candidates: Optional[List[float]] = None,
 ) -> np.ndarray:
-    """Find the F1-optimal threshold for each class independently.
-
-    Sweeps candidate thresholds and picks the one that maximises per-class F1.
-    Returns an array of shape [num_labels] with the best threshold per class.
-    """
+    """Find the F1-optimal threshold for each class independently."""
     from sklearn.metrics import f1_score
 
     if candidates is None:
@@ -548,8 +500,6 @@ def main() -> None:
     pos_weight = compute_pos_weights(train_ds).to(device)
 
     # Label smoothing: convert hard {0,1} targets to {s/2, 1-s/2} to reduce
-    # overconfidence on rare classes and improve calibration.
-    # Applied by wrapping BCEWithLogitsLoss with a pre-processing step.
     label_smoothing = args.label_smoothing
 
     class SmoothedBCELoss(nn.Module):

@@ -1,8 +1,4 @@
-"""Multi-task episodic fine-tuning on CUAD, LEDGAR, and CoNLL-2003.
-
-This trainer uses real labels (no synthetic/random targets) and samples
-few-shot episodes from each dataset.
-"""
+"""Multi-task episodic fine-tuning on CUAD, LEDGAR, and CoNLL-2003."""
 
 from __future__ import annotations
 

@@ -31,7 +31,10 @@ from src.deduplication import (
     record_user_teach,
     register_upload,
     rollback_open_cycle_data,
+    rollback_pending_teaches_only,
     seed_verification_baseline,
+    get_user_active_doc,
+    set_user_active_doc,
     should_discard_on_leave,
     store_changed_fields_meta,
     store_result,
@@ -42,9 +45,6 @@ from src.history_store import (
 )
 
 # .env example (do not commit real secrets):
-# PRIVATE_KEY=0xyour_wallet_private_key
-# SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/your_project_id
-# CONTRACT_ADDRESS=0xYourDeployedContractAddress
 load_dotenv()
 
 # ABI for LexiCacheVerifier.sol — keeps the backend decoupled from the build artefact
@@ -229,10 +229,7 @@ def _compute_raw_hash(text: str) -> str:
 
 
 def _detect_changed_fields(old_text: str, new_text: str) -> List[str]:
-    """
-    Return which normalisation placeholder types differ between the two raw texts.
-    Used to record what changed in a template-variant re-upload.
-    """
+    """Return which normalisation placeholder types differ between the two raw texts."""
     import re
     changed: List[str] = []
 
@@ -267,13 +264,7 @@ def _remap_clause_offsets(
     new_text: str,
     new_page_texts: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """
-    Try to find each cached clause span in the new document text.
-
-    - If found: update start_idx / end_idx and page_number.
-    - If not found (span contains changed text like a date or party name):
-      clear offsets to -1 so the frontend knows the position is approximate.
-    """
+    """Try to find each cached clause span in the new document text."""
     remapped: List[Dict[str, Any]] = []
     for clause in clauses:
         c = dict(clause)
@@ -306,17 +297,7 @@ def _pin_to_ipfs(
     unknown_count: int,
     verified_at: str,
 ) -> str:
-    """
-    Pin a privacy-preserving analysis summary to IPFS via Pinata.
-
-    Only metadata is pinned — no document text, no PII.
-    Returns the IPFS CID (Content Identifier) on success, or empty
-    string if Pinata is unavailable (non-fatal — verification continues).
-
-    The CID creates a two-part proof:
-      - analysisHash (on-chain)  → proves WHAT was found (tamper-proof)
-      - CID (on-chain + IPFS)    → proves the full analysis is retrievable
-    """
+    """Pin a privacy-preserving analysis summary to IPFS via Pinata."""
     pinata_jwt = (os.getenv("PINATA_JWT") or "").strip()
     if not pinata_jwt:
         print("[IPFS] PINATA_JWT not set — skipping IPFS pin.")
@@ -409,7 +390,6 @@ def _send_sepolia_verification_tx(
     nonce = w3.eth.get_transaction_count(account.address)
 
     # ABI-encode and send to the deployed LexiCacheVerifier contract.
-    # The contract's idempotency guard will revert if analysisHash was already logged.
     tx = contract.functions.storeVerification(
         doc_hash,
         clause_types,
@@ -518,14 +498,7 @@ async def predict_text(request: TextRequest):
 
 @app.post("/upload-file")
 async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymous")):
-    """Upload a PDF or DOCX file, extract text, and classify clauses with page tracking.
-
-    Redis deduplication: the document is fingerprinted by SHA-256 of its
-    normalised text.  If an identical document was analysed before (within
-    90 days) the cached result is returned immediately without re-running
-    the model.  If Redis is unavailable the endpoint degrades gracefully
-    and always runs the full model pipeline.
-    """
+    """Upload a PDF or DOCX file, extract text, and classify clauses with page tracking."""
     if not file.filename.lower().endswith(('.pdf', '.doc', '.docx')):
         raise HTTPException(status_code=400, detail="Only PDF, DOC, DOCX allowed")
 
@@ -567,10 +540,44 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
         raw_hash = _compute_raw_hash(text)
         print(f"[upload-file] doc_hash={doc_hash[:16]}... file={file.filename!r} ({len(text)} chars)")
 
+        # Step 2b: if the user had a different document open and unverified, discard it
+        prev_doc_hash = get_user_active_doc(user_id)
+        if prev_doc_hash and prev_doc_hash != doc_hash and should_discard_on_leave(prev_doc_hash):
+            if has_verification_history(prev_doc_hash):
+                print(
+                    f"[upload-file] Rolling back unverified teaches on previous doc:{prev_doc_hash[:16]}... "
+                    f"(user switched to a new document)"
+                )
+                rollback_pending_teaches_only(prev_doc_hash)
+            else:
+                print(
+                    f"[upload-file] Discarding unverified previous doc:{prev_doc_hash[:16]}... "
+                    f"(user switched without verifying)"
+                )
+                discard_document_data(prev_doc_hash)
+
         register_upload(doc_hash, user_id)
+        set_user_active_doc(user_id, doc_hash)
         durable_history = _get_effective_verification_history(doc_hash)
         seed_verification_baseline(doc_hash, user_id, durable_history)
         cached = get_cached_result(fingerprints)
+        if cached is not None and should_discard_on_leave(doc_hash):
+            if has_verification_history(doc_hash):
+                # Previously verified, but user taught new clauses and did not
+                print(
+                    f"[upload-file] Rolling back unverified teaches for doc:{doc_hash[:16]}... "
+                    f"(keeping prior verified analysis)"
+                )
+                rollback_pending_teaches_only(doc_hash)
+                # cached is still valid — it holds the last verified analysis
+            else:
+                # Never verified at all: discard everything and force a fresh
+                print(
+                    f"[upload-file] Discarding unverified cache for doc:{doc_hash[:16]}... "
+                    f"(no completed verification)"
+                )
+                discard_document_data(doc_hash)
+                cached = None
         if cached is not None:
             cached_clauses = cached.get("clauses", [])
             cached_page_texts = cached.get("page_texts", page_texts)
@@ -759,7 +766,6 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
         pending_teaches = _pending_teaches_for_user(request.doc_hash, request.user_id)
 
         # Use cached results instead of re-running the entire model pipeline.
-        # This reduces teach latency from ~5-15s to <100ms.
         cached = get_cached_result(request.doc_hash) or {}
         cached_clauses = cached.get("clauses", [])
 
@@ -798,14 +804,7 @@ async def rename_unknown_clause(request: RenameUnknownRequest):
 @app.post("/verify")
 @app.post("/verify-document")
 async def verify_document(request: VerifyRequest):
-    """
-    Create an immutable verification attempt for the current document analysis.
-
-    Rules:
-    - First uploader can verify while verify-cycle is open.
-    - Later users can verify only after teaching at least one unknown.
-    - Teaching can reopen verification even if unknown_count becomes zero.
-    """
+    """Create an immutable verification attempt for the current document analysis."""
     try:
         cached = get_cached_result(request.doc_hash)
         if not cached:
@@ -817,7 +816,6 @@ async def verify_document(request: VerifyRequest):
         pending_teaches = _pending_teaches_for_user(request.doc_hash, request.user_id)
 
         # Authoritative verification source: server-side cached analysis.
-        # Do not trust client-provided clauses for permission checks or proof.
         clauses = cached.get("clauses", [])
         clauses = _apply_pending_teaches_to_results(clauses, pending_teaches)
         unknown_count = len([
@@ -879,7 +877,6 @@ async def verify_document(request: VerifyRequest):
         geo_summary = geo_audit.get("geo_summary")
 
         # Step 1 — Pin analysis summary to IPFS (non-fatal if Pinata unavailable).
-        # CID links the on-chain hash to a retrievable off-chain analysis record.
         cid = _pin_to_ipfs(
             doc_hash=request.doc_hash,
             analysis_hash=analysis_hash,
@@ -980,15 +977,7 @@ async def document_history(doc_hash: str):
 
 @app.post("/discard-document")
 async def discard_document(request: DiscardRequest):
-    """
-    Discard cached document data when a user leaves with an open verify cycle.
-
-    Rules:
-    - If document was never verified, discard.
-    - If user taught after a prior verification and did not verify again,
-      discard that open cycle data as well.
-    - Keep only fully verified/closed cycles.
-    """
+    """Discard cached document data when a user leaves with an open verify cycle."""
     try:
         has_history = len(_get_effective_verification_history(request.doc_hash)) > 0
         cycle_open = has_open_verification_cycle(request.doc_hash)
@@ -1006,7 +995,6 @@ async def discard_document(request: DiscardRequest):
             }
 
         # Previously verified docs: roll back only unverified cycle changes,
-        # preserve verified baseline metadata and history.
         if has_history and cycle_open:
             rolled_back = rollback_open_cycle_data(request.doc_hash)
             if rolled_back:

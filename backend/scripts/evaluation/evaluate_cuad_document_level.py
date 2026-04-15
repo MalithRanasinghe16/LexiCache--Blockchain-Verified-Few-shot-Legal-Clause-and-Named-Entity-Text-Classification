@@ -1,32 +1,4 @@
-"""
-Document-level multi-label clause classification evaluation on CUAD test split.
-
-TASK
-----
-For each test contract in the 80/20 CUAD split:
-  - Ground truth : which of the 41 CUAD clause types have >=1 non-empty annotation
-                   (binary multi-label: "does this contract contain clause type X?")
-  - Prediction   : run model.predict_cuad(full_text) and collect the set of
-                   predicted clause_type values, mapped to CUAD canonical names
-
-METRICS (sklearn)
------------------
-  - Per-class Precision, Recall, F1  (classification_report, output_dict=True)
-  - Macro-averaged  Precision, Recall, F1
-  - Micro-averaged  Precision, Recall, F1
-  - Hamming loss
-  - Top-K accuracy  (per-contract recall: % of GT clause types found by model)
-
-OUTPUT
-------
-  experiments/results/cuad_document_level_results.json   (full JSON for thesis)
-  Console summary table
-
-USAGE (run from backend/)
--------------------------
-  $env:PYTHONPATH = "."; python scripts/evaluation/evaluate_cuad_document_level.py
-  $env:PYTHONPATH = "."; python scripts/evaluation/evaluate_cuad_document_level.py --min-conf 0.55 --max-files 20
-"""
+"""Document-level multi-label clause classification evaluation on CUAD test split."""
 
 from __future__ import annotations
 
@@ -47,8 +19,6 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 from src.ml_model import LexiCacheModel
 # Official CUAD 41 clause categories
-# Casing matches the ground-truth annotation files (Title Case as stored in
-# the processed JSON files under data/processed/cuad/).
 CUAD_41_CATEGORIES: List[str] = [
     "Document Name",
     "Parties",
@@ -93,8 +63,6 @@ CUAD_41_CATEGORIES: List[str] = [
     "Indemnification",
 ]
 # Explicit alias map: model type names → CUAD 41 canonical names
-# Used BEFORE fuzzy matching to handle known systematic mismatches between
-# the model's CLAUSE_KEYWORDS_WEIGHTED taxonomy and CUAD 41 categories.
 MODEL_TYPE_ALIASES: Dict[str, Optional[str]] = {
     # Model uses generic "Termination"; CUAD 41 has "Termination For Convenience"
     "termination": "Termination For Convenience",
@@ -146,17 +114,7 @@ def map_to_cuad_canonical(
     mapping_cache: Dict[str, Optional[str]],
     fuzzy_cutoff: float = 0.72,
 ) -> Optional[str]:
-    """
-    Map a model-predicted clause type name to a CUAD canonical category name.
-
-    Strategy (in order):
-      1. Exact case-insensitive match.
-      2. Fuzzy match via difflib.get_close_matches (cutoff=fuzzy_cutoff).
-      3. Return None -- the predicted type is outside the CUAD 41 taxonomy.
-
-    Results are cached in *mapping_cache* so each unique predicted type is
-    resolved only once per evaluation run.
-    """
+    """Map a model-predicted clause type name to a CUAD canonical category name."""
     if predicted_type in mapping_cache:
         return mapping_cache[predicted_type]
 
@@ -210,14 +168,7 @@ def extract_ground_truth_cuad_types(
     contract: Dict,
     cuad_lower_map: Dict[str, str],
 ) -> Set[str]:
-    """
-    Return the set of CUAD canonical clause types that have at least one
-    non-empty annotation in *contract*.
-
-    Only types that belong to the CUAD 41 taxonomy are included; any
-    extra types present in the JSON (e.g. dataset-specific extras) are
-    silently ignored.
-    """
+    """Return the set of CUAD canonical clause types that have at least one non-empty annotation in *contract*."""
     types: Set[str] = set()
     for item in contract.get("clause_types", []):
         if not isinstance(item, dict):
@@ -238,10 +189,7 @@ def extract_predicted_cuad_types(
     min_conf: float = 0.55,
     fuzzy_cutoff: float = 0.72,
 ) -> Set[str]:
-    """
-    Run model.predict_cuad() on *full_text* and return the set of CUAD
-    canonical clause types predicted with confidence >= *min_conf*.
-    """
+    """Run model.predict_cuad() on *full_text* and return the set of CUAD canonical clause types predicted with confidence >= *min_conf*."""
     predicted: Set[str] = set()
     results = model.predict_cuad(full_text)
 
@@ -269,13 +217,7 @@ def compute_top_k_accuracy(
     predicted: List[Set[str]],
     contract_names: List[str],
 ) -> Dict:
-    """
-    For each contract, compute the fraction of ground-truth CUAD clause types
-    that were correctly predicted by the model (per-contract recall).
-
-    Contracts with zero ground-truth annotations are excluded from the
-    aggregate statistics.
-    """
+    """For each contract, compute the fraction of ground-truth CUAD clause types that were correctly predicted by the model (per-contract recall)."""
     per_contract: List[Dict] = []
 
     for gt, pred, name in zip(ground_truth, predicted, contract_names):
@@ -444,10 +386,6 @@ def main() -> None:
     print(f"{'-' * 75}")
 
     # -- Load model (train-only for fair baseline evaluation) ---------------
-    # NOTE: No weight/threshold args passed here — model uses its own defaults
-    # (kw_weight=0.55, model_weight=0.45, inclusion>=0.30, fusion>=0.10,
-    #  model_distance_scale=5.0, hybrid_agreement_bonus=0.20) as set in
-    # LexiCacheModel.__init__.
     print("\n  Loading LexiCacheModel (train-only support set)...")
     model = LexiCacheModel(
         projection_path=args.projection_path,

@@ -1,8 +1,5 @@
 
-"""
-Few-shot experiments runner for LexiCache.
-Loads LEDGAR, runs prototypical episodes, and reports macro F1.
-"""
+"""Few-shot experiments runner for LexiCache."""
 
 import numpy as np
 import torch
@@ -70,9 +67,7 @@ def train_prototypical_meta(
     lr: float = 1e-4,
     save_path: str = "models/projection_head.pth"
 ):
-    """
-    Meta-train projection head with correct label remapping per episode.
-    """
+    """Meta-train projection head with correct label remapping per episode."""
     print(f"Starting meta-training: {n_way}-way {k_shot}-shot | {n_episodes_train} episodes | {epochs} epochs")
     
     dataset = load_dataset("lex_glue", "ledgar")
@@ -168,10 +163,7 @@ def evaluate_with_trained_projection(
     projection_path: str = "models/projection_head.pth",
     apply_normalization: bool = True
 ):
-    """
-    Evaluate few-shot performance using the trained projection head.
-    Compares against frozen baseline.
-    """
+    """Evaluate few-shot performance using the trained projection head."""
     print(f"Evaluating with trained projection: {n_way}-way {k_shot}-shot | {n_episodes} episodes")
     
     dataset = load_dataset("lex_glue", "ledgar")
@@ -229,19 +221,9 @@ def evaluate_with_trained_projection(
     print(f"(Previous frozen baseline was ~0.7277)")
 
 if __name__ == "__main__":
-    # Option A: Run evaluation only 
-    # run_few_shot_ledgar(n_way=5, k_shot=5, n_episodes=50, apply_normalization=True)
+    # Option A: Run evaluation only
     
-    # Option B: Run meta-training 
-    # train_prototypical_meta(
-    #     n_way=5,
-    #     k_shot=5,
-    #     n_episodes_train=1000,      
-    #     epochs=5,
-    #     batch_size=16,
-    #     lr=1e-4,
-    #     save_path="models/projection_head.pth"
-    # )
+    # Option B: Run meta-training
 
 
     

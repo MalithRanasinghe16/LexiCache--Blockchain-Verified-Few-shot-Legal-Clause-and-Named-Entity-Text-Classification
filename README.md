@@ -240,5 +240,4 @@ LexiCache/
 - Verification history can come from MongoDB fallback even if Redis metadata is missing.
 
 ## License
-
-Add your license details here.
+All rights reserved @Malith.S.Ranasinghe

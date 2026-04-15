@@ -1,20 +1,4 @@
-"""
-LexiCache Cache + Blockchain Evaluation Script (Thesis-Ready)
-
-Two-phase evaluation:
-  Phase 1 — seed cache with 200 unique originals (full inference, not counted as hits)
-  Phase 2 — test 800 known variants against seeded cache (measures true hit rate)
-
-Blockchain:
-  Sends BLOCKCHAIN_SAMPLE_SIZE real transactions during Phase 1 to measure
-  actual gas consumption and confirmation latency on Sepolia testnet.
-  Cache hits produce zero blockchain transactions — demonstrating gas savings.
-
-Gas savings definition used here:
-  Without cache: every document upload triggers a blockchain verification tx.
-  With cache:    only cache-miss documents trigger a tx (80% of uploads are hits).
-  Savings = cache_hit_rate (not latency savings, which is a separate metric).
-"""
+"""LexiCache Cache + Blockchain Evaluation Script (Thesis-Ready) Two-phase evaluation: Phase 1 — seed cache with 200 unique originals (full inference, not counted as hits) Phase 2 — t"""
 
 import hashlib
 import json
@@ -37,8 +21,6 @@ YOUR_WALLET              = "0xFa744cf018207B641e4BeD5706739C46d5A4E0a2"
 RPC_URL                  = "https://sepolia.infura.io/v3/4ae413eca67e451395a2b947e95f5ba9"
 
 # Number of real Sepolia transactions to send for gas/latency measurement.
-# Remaining originals are cached and evaluated without sending txs.
-# Keep small (5–10) to avoid draining test ETH and long evaluation times.
 BLOCKCHAIN_SAMPLE_SIZE = 5
 
 # ETH price for USD cost estimation — update to current market price.
@@ -95,11 +77,7 @@ LEXICACHE_VERIFIER_ABI = [
 # ========================= BLOCKCHAIN SETUP =========================
 
 def _setup_blockchain():
-    """
-    Connect to Sepolia and return (w3, verifier_contract, account).
-    Returns (None, None, None) if connection fails or key is missing —
-    evaluation continues with cache-only metrics in that case.
-    """
+    """Connect to Sepolia and return (w3, verifier_contract, account)."""
     if not PRIVATE_KEY:
         print("[Blockchain] PRIVATE_KEY not set in .env — blockchain sampling disabled.")
         return None, None, None
@@ -147,20 +125,9 @@ def _send_verification_tx(
     clause_types: List[str],
     analysis_hash: str,
 ) -> Optional[Dict[str, Any]]:
-    """
-    Send a real storeVerification() transaction to LexiCacheVerifier on Sepolia.
-
-    Measures:
-      - gas_used       : actual gas consumed (from receipt)
-      - gas_price_gwei : gas price at time of submission
-      - cost_usd       : estimated USD cost (gas_used * gas_price * ETH_PRICE_USD)
-      - latency_ms     : wall-clock time from send to receipt confirmation
-
-    Returns a metrics dict, or None if the tx was skipped or failed.
-    """
+    """Send a real storeVerification() transaction to LexiCacheVerifier on Sepolia."""
     try:
         # Idempotency pre-check — allows the evaluation to be re-run without errors.
-        # The contract would revert anyway, but this avoids wasting gas on the attempt.
         already_logged = verifier_contract.functions.isLogged(analysis_hash).call()
         if already_logged:
             print(f"  [BC] Already logged on-chain — skipping tx ({primary_hash[:12]}...)")
@@ -371,9 +338,6 @@ avg_cache_lat  = statistics.mean(latencies_cache) if latencies_cache else 0.0
 avg_full_lat   = statistics.mean(latencies_full)  if latencies_full  else 0.0
 
 # Real blockchain metrics — from sample transactions sent this run.
-# If all sample docs were already on-chain (isLogged returned true for all),
-# preserve the metrics from the previous results file so subsequent runs
-# don't lose the real measurements from the first run.
 if bc_results:
     avg_gas_used     = statistics.mean([r["gas_used"]        for r in bc_results])
     avg_gas_gwei     = statistics.mean([r["gas_price_gwei"]  for r in bc_results])

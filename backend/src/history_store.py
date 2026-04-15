@@ -1,8 +1,4 @@
-"""MongoDB-backed durable verification history store.
-
-This module is optional at runtime. If pymongo is unavailable or MONGODB_URI
-is not configured, calls degrade gracefully and return empty/False.
-"""
+"""MongoDB-backed durable verification history store."""
 
 from __future__ import annotations
 

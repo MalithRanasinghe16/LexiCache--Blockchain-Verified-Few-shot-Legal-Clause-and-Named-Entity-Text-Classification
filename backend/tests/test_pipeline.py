@@ -5,7 +5,6 @@ import os
 import types
 import pytest  # type: ignore[import]
 # Lightweight stubs so tests can import ml_model quickly
-# Stub torch
 torch_stub = types.ModuleType("torch")
 torch_stub.no_grad = lambda: __import__('contextlib').nullcontext()  # type: ignore[attr-defined]
 torch_stub.load = lambda *a, **kw: {}  # type: ignore[attr-defined]

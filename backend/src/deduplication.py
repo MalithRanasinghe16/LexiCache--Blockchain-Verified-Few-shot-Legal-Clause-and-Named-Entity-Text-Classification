@@ -122,6 +122,38 @@ def _history_key(doc_hash: str) -> str:
     return f"history:{doc_hash}"
 
 
+def _user_active_key(user_id: str) -> str:
+    return f"user_active:{user_id}"
+
+
+# 24-hour TTL for the per-user active-document pointer.
+_USER_ACTIVE_TTL: int = 24 * 3600
+
+
+def get_user_active_doc(user_id: str) -> Optional[str]:
+    """Return the doc_hash the user most recently opened, or None."""
+    client = _get_redis()
+    if client is None:
+        return None
+    try:
+        value = client.get(_user_active_key(user_id))
+        return str(value) if value else None
+    except Exception as exc:
+        logger.warning("[Redis] get_user_active_doc failed: %s", exc)
+        return None
+
+
+def set_user_active_doc(user_id: str, doc_hash: str) -> None:
+    """Record that this user now has doc_hash open."""
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        client.set(_user_active_key(user_id), doc_hash, ex=_USER_ACTIVE_TTL)
+    except Exception as exc:
+        logger.warning("[Redis] set_user_active_doc failed: %s", exc)
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -293,7 +325,7 @@ def _get_total_teach_count(meta: Optional[Dict[str, Any]]) -> int:
 
 
 def _is_verify_cycle_open(meta: Optional[Dict[str, Any]]) -> bool:
-        """Return True when a new verification is needed."""
+    """Return True when a new verification is needed."""
     if not meta:
         return True
 
@@ -503,6 +535,32 @@ def rollback_open_cycle_data(doc_hash: str) -> bool:
     except Exception as exc:
         print(f"[Redis] rollback_open_cycle_data failed for doc:{doc_hash[:16]}...: {exc}")
         logger.warning("[Redis] rollback_open_cycle_data failed: %s", exc)
+        return False
+
+
+def rollback_pending_teaches_only(doc_hash: str) -> bool:
+    """Discard unverified teach data while keeping the analysis cache and verification history."""
+    meta = get_document_meta(doc_hash)
+    if not meta:
+        return False
+
+    try:
+        baseline_taught = meta.get("taught_users_at_last_verify")
+        baseline_map: Dict[str, Any] = baseline_taught if isinstance(baseline_taught, dict) else {}
+
+        meta["pending_teaches"] = []
+        meta["taught_users"] = dict(baseline_map)
+        meta["last_verified_taught_total"] = _get_total_teach_count({"taught_users": baseline_map})
+
+        if not _save_document_meta(doc_hash, meta):
+            return False
+
+        print(f"[Redis] Rolled back pending teaches for doc:{doc_hash[:16]}... (analysis cache preserved)")
+        logger.info("[Redis] Rolled back pending teaches for doc:%s... (analysis cache preserved)", doc_hash[:16])
+        return True
+    except Exception as exc:
+        print(f"[Redis] rollback_pending_teaches_only failed for doc:{doc_hash[:16]}...: {exc}")
+        logger.warning("[Redis] rollback_pending_teaches_only failed: %s", exc)
         return False
 
 
@@ -724,17 +782,7 @@ def store_result(
     file_type: str,
     raw_hash: Optional[str] = None,
 ) -> bool:
-    """
-    Persist a full analysis result in Redis with a 90-day TTL.
-
-    The cached payload mirrors every field returned by /upload-file so
-    that a cache-hit response is byte-for-byte equivalent to a fresh one
-    (minus the model latency).
-
-    Returns True on success, False if Redis is unavailable or the write
-    fails.  Failure is non-fatal — the caller should still return the
-    freshly computed result to the user.
-    """
+    """Persist a full analysis result in Redis with a 90-day TTL."""
     client = _get_redis()
     if client is None:
         return False

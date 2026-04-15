@@ -1,8 +1,4 @@
-"""
-ml_model.py
-Adaptive meta-learning model for LexiCache.
-Supports online adaptation: detects unknown clauses, accepts user labels, and meta-learns in real-time.
-"""
+"""ml_model.py Adaptive meta-learning model for LexiCache."""
 
 import time
 import torch
@@ -658,14 +654,7 @@ class LexiCacheModel:
         return 'BODY'
 
     def _segment_contract(self, text: str) -> List[Dict[str, Any]]:
-        """
-        Legal-specific segmenter:
-        1. Classify every line as HEADING / BLANK / BODY.
-        2. Group consecutive BODY lines into paragraph blocks.
-        3. Merge small adjacent body blocks (< 80 chars) into the next block.
-        4. Attach preceding heading text as `context_heading` to each segment.
-        5. Further split very long paragraphs on sentence boundaries.
-        """
+        """Legal-specific segmenter: 1."""
         lines = text.splitlines()
         tagged = [(line, self._classify_line(line)) for line in lines]
 
@@ -790,10 +779,7 @@ class LexiCacheModel:
         return segments
 
     def _is_heading(self, text: str) -> bool:
-        """
-        Detect if a segment is likely a heading/subheading/title.
-        Returns True if it's a heading (should NOT be classified as a clause).
-        """
+        """Detect if a segment is likely a heading/subheading/title."""
         text_stripped = text.strip()
 
         if len(text_stripped) < 15:
@@ -824,11 +810,7 @@ class LexiCacheModel:
     # Keyword classification
 
     def _classify_by_keywords(self, text: str, context_heading: str = '') -> Tuple[Optional[str], float]:
-        """
-        Weighted heuristic classification based on keywords.
-        Keywords found in context_heading get a 2x contribution boost.
-        Returns (clause_type, confidence).
-        """
+        """Weighted heuristic classification based on keywords."""
         text_lower: str = text.lower()
         heading_lower: str = context_heading.lower() if context_heading else ''
 
@@ -895,11 +877,7 @@ class LexiCacheModel:
     # Hybrid classification
 
     def _classify_by_model_similarity(self, proj: torch.Tensor) -> Tuple[Optional[str], float, float]:
-        """Classify by support-set similarity using per-label aggregated distances.
-
-        Returns:
-            (best_label, confidence, top2_margin)
-        """
+        """Classify by support-set similarity using per-label aggregated distances."""
         if len(self.support_embeddings) == 0:
             return None, 0.0, 0.0
 
@@ -933,12 +911,7 @@ class LexiCacheModel:
         return best_label, conf, margin
 
     def _classify_segment(self, segment_text: str, context_heading: str = '') -> Dict:
-        """
-        Simplified and stronger hybrid classification.
-        - Uses raw text for keyword matching (preserves legal phrasing).
-        - Uses normalized text for model embedding.
-        - Simple weighted average with agreement bonus.
-        """
+        """Simplified and stronger hybrid classification."""
         raw = segment_text.strip()
         if len(raw) < 30:
             return {
@@ -1150,11 +1123,7 @@ class LexiCacheModel:
     # Main prediction pipeline
 
     def _predict_document_labels(self, contract_text: str) -> Dict[str, float]:
-        """Run the fine-tuned multilabel model to get document-level clause probabilities.
-
-        Returns a dict mapping each CUAD clause type to its sigmoid probability.
-        Returns an empty dict if the multilabel model is not loaded.
-        """
+        """Run the fine-tuned multilabel model to get document-level clause probabilities."""
         if self.multilabel_model is None or self.multilabel_tokenizer is None:
             return {}
 
@@ -1218,14 +1187,7 @@ class LexiCacheModel:
             return {}, np.full(len(CUAD_41_CATEGORIES), 0.50)
 
     def predict_cuad(self, contract_text: str) -> List[Dict[str, Any]]:
-        """
-        Extract and classify all clauses from a contract.
-
-        Uses raw text throughout - no normalization in the detection path.
-        All inclusion/exclusion logic lives inside _classify_segment (3-tier threshold).
-        No top-N or per-type caps are applied - all detected clauses are returned.
-        Frontend is responsible for any display-level filtering.
-        """
+        """Extract and classify all clauses from a contract."""
         print(f"\n{'='*85}")
         print("LEXICACHE MULTI-CLAUSE EXTRACTION")
         print(f"{'='*85}")
@@ -1342,12 +1304,7 @@ class LexiCacheModel:
                 self.next_label_id += 1
 
     def _load_initial_cuad_support(self, cuad_train_path: str, max_seed_examples_per_type: int = 12):
-        """Seed initial support from CUAD train split.
-
-        Performance: uses a pre-computed tensor cache (models/cuad_seed_cache.pt)
-        so subsequent startups load instantly without re-running Legal-BERT.
-        The cache is auto-generated on the first startup and reused thereafter.
-        """
+        """Seed initial support from CUAD train split."""
         train_dir = Path(cuad_train_path)
         if not train_dir.exists():
             print(f"  CUAD train seed path not found, skipping: {train_dir}")
@@ -1532,12 +1489,7 @@ class LexiCacheModel:
             print(f"  Failed to save support set: {e}")
 
     def _load_knowledge_base(self):
-        """Load knowledge base metadata (learned_types, clause_colors).
-
-        Embeddings are NOT rebuilt here — they are already loaded from
-        support_set.pkl by _load_support_set().  This avoids redundant
-        Legal-BERT inference on every startup.
-        """
+        """Load knowledge base metadata (learned_types, clause_colors)."""
         if Path(self.knowledge_path).exists():
             try:
                 with open(self.knowledge_path, 'r') as f:

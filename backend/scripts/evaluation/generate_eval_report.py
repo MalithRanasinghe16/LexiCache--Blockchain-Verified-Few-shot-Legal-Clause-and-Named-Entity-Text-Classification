@@ -1,14 +1,4 @@
-"""
-generate_eval_report.py
-Reads all existing LexiCache evaluation result JSONs and generates a
-comprehensive set of charts saved to experiments/results/eval_report/.
-
-Usage:
-    cd backend
-    python scripts/evaluation/generate_eval_report.py
-
-No model loading or evaluation required — reads pre-computed results only.
-"""
+"""generate_eval_report.py Reads all existing LexiCache evaluation result JSONs and generates a comprehensive set of charts saved to experiments/results/eval_report/."""
 
 from __future__ import annotations
 

@@ -219,12 +219,7 @@ def apply_teaching_and_track_best(
     base_r: float,
     base_f1: float,
 ) -> Tuple[float, float, float, int, bool]:
-    """Apply teaching examples one-by-one and keep the best checkpoint.
-
-    Selection criterion:
-    1) Prefer checkpoints where all three deltas are strictly positive.
-    2) Otherwise maximize macro F1.
-    """
+    """Apply teaching examples one-by-one and keep the best checkpoint."""
     best_p = base_p
     best_r = base_r
     best_f1 = base_f1

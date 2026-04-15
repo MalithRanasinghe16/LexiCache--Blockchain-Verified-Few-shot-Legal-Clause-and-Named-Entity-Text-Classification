@@ -1,7 +1,4 @@
-"""
-Few-shot modeling for LexiCache.
-Implements prototypical networks with Legal-BERT for clause classification and NER.
-"""
+"""Few-shot modeling for LexiCache."""
 
 import torch
 import torch.nn as nn
@@ -20,13 +17,7 @@ class PrototypicalNetwork(nn.Module):
         self.hidden_size = self.encoder.config.hidden_size
 
     def forward(self, texts: List[str], batch_size: int = 16, enable_grad: bool = False) -> torch.Tensor:
-        """Encode texts in batches and return mean-pooled embeddings.
-
-        Args:
-            texts: Input strings.
-            batch_size: Batch size for tokenization/encoding.
-            enable_grad: When True, keeps encoder graph for finetuning.
-        """
+        """Encode texts in batches and return mean-pooled embeddings."""
         if not texts:
             return torch.empty(0, self.hidden_size, device=self.device)
 
@@ -79,9 +70,7 @@ class PrototypicalNetwork(nn.Module):
         return preds, probs
 
 class LegalBERTMultiLabel(nn.Module):
-    """
-    Legal-BERT encoder with a multi-label classification head.
-    """
+    """Legal-BERT encoder with a multi-label classification head."""
     def __init__(
         self,
         encoder_name: str = "nlpaueb/legal-bert-base-uncased",
@@ -119,4 +108,4 @@ class LegalBERTMultiLabel(nn.Module):
 
         pooled = (cls_3d * chunk_mask).sum(dim=1) / chunk_mask.sum(dim=1).clamp(min=1e-6)
         pooled = self.dropout(pooled)
-        return self.classifier(pooled)
+        return self.classifier(pooled)

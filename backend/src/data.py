@@ -1,21 +1,4 @@
-"""
-Data acquisition and preprocessing for LexiCache.
-
-Downloads and preprocesses public legal datasets for AI training.
-
-Datasets:
-- CUAD (Contract Understanding Atticus Dataset): Legal contract clauses
-  Source: https://huggingface.co/datasets/cuad
-  License: CC BY 4.0
-
-- LexGLUE/LEDGAR: Legal provisions classification
-  Source: https://huggingface.co/datasets/lex_glue
-  License: CC BY-SA 4.0
-
-- CoNLL-2003: Named Entity Recognition
-  Source: https://huggingface.co/datasets/conll2003
-  License: Research use
-"""
+"""Data acquisition and preprocessing for LexiCache."""
 
 import re
 import json
@@ -30,11 +13,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 
 def normalize_text(text: str) -> str:
-    """
-    Canonical normalization for legal near-duplicate matching.
-    Maximizes cache-hit stability across template variants while preserving
-    enough structure to avoid broad collisions.
-    """
+    """Canonical normalization for legal near-duplicate matching."""
     if not text or not isinstance(text, str):
         return ""
 
@@ -106,10 +85,7 @@ def normalize_text(text: str) -> str:
 
 
 def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
-    """
-    Load CUAD from Kaggle cache (already downloaded successfully).
-    This is the official full dataset with 41 clause types and expert spans.
-    """
+    """Load CUAD from Kaggle cache (already downloaded successfully)."""
     print("\n" + "="*60)
     print("Loading CUAD Dataset from Kaggle Cache")
     print("="*60)
@@ -155,24 +131,7 @@ def download_cuad_dataset(save_path: Optional[Path] = None) -> Dict:
 
 
 def download_ledgar_dataset(save_path: Optional[Path] = None) -> Dict:
-    """
-    Download LEDGAR dataset from LexGLUE benchmark.
-    
-    LEDGAR is a multi-class legal provisions classification dataset with 
-    ~60k English contracts from the SEC's EDGAR database.
-    
-    Citation:
-    Chalkidis, I., et al. (2022). LexGLUE: A Benchmark Dataset for Legal 
-    Language Understanding. ACL 2022.
-    
-    License: CC BY-SA 4.0
-    
-    Args:
-        save_path (Path, optional): Path to save processed data
-        
-    Returns:
-        dict: Dataset with train/test/validation splits
-    """
+    """Download LEDGAR dataset from LexGLUE benchmark."""
     print("\n" + "="*60)
     print("Downloading LEDGAR Dataset (Legal Provisions)")
     print("="*60)
@@ -215,24 +174,7 @@ def download_ledgar_dataset(save_path: Optional[Path] = None) -> Dict:
 
 
 def download_conll2003_dataset(save_path: Optional[Path] = None) -> Dict:
-    """
-    Download CoNLL-2003 Named Entity Recognition dataset.
-    
-    CoNLL-2003 is a standard NER dataset with annotations for persons, 
-    organizations, locations, and miscellaneous entities.
-    
-    Citation:
-    Tjong Kim Sang, E. F., & De Meulder, F. (2003). Introduction to the 
-    CoNLL-2003 Shared Task: Language-Independent Named Entity Recognition.
-    
-    License: Research use
-    
-    Args:
-        save_path (Path, optional): Path to save processed data
-        
-    Returns:
-        dict: Dataset with train/test/validation splits
-    """
+    """Download CoNLL-2003 Named Entity Recognition dataset."""
     print("\n" + "="*60)
     print("Downloading CoNLL-2003 Dataset (Named Entity Recognition)")
     print("="*60)
@@ -277,9 +219,7 @@ def download_conll2003_dataset(save_path: Optional[Path] = None) -> Dict:
 
 
 def test_normalize_text():
-    """
-    Test the normalize_text function with sample legal text.
-    """
+    """Test the normalize_text function with sample legal text."""
     print("\n" + "="*60)
     print("Testing normalize_text Function")
     print("="*60)
@@ -311,9 +251,7 @@ def test_normalize_text():
 
 
 def main():
-    """
-    Main execution function to download and preprocess all datasets.
-    """
+    """Main execution function to download and preprocess all datasets."""
     print("\n" + "="*60)
     print("LEGAL AI DATASET ACQUISITION")
     print("="*60)

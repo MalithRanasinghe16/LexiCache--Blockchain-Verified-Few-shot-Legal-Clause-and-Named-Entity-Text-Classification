@@ -1,6 +1,4 @@
-"""LexiCache online learning demo.
-Demonstrates how the adaptive meta-learning system works.
-"""
+"""LexiCache online learning demo."""
 
 import requests
 import json
