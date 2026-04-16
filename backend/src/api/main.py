@@ -296,6 +296,7 @@ def _pin_to_ipfs(
     clause_count: int,
     unknown_count: int,
     verified_at: str,
+    changed_fields: Optional[List[str]] = None,
 ) -> str:
     """Pin a privacy-preserving analysis summary to IPFS via Pinata."""
     pinata_jwt = (os.getenv("PINATA_JWT") or "").strip()
@@ -304,16 +305,20 @@ def _pin_to_ipfs(
         return ""
 
     # Build the analysis summary — no raw text, no PII
+    content: Dict[str, Any] = {
+        "doc_hash":      doc_hash,
+        "analysis_hash": analysis_hash,
+        "clause_types":  clause_types,
+        "clause_count":  clause_count,
+        "unknown_count": unknown_count,
+        "verified_at":   verified_at,
+        "system":        "LexiCache v0.1.0",
+    }
+    if changed_fields:
+        content["changed_fields"] = changed_fields
+
     payload = {
-        "pinataContent": {
-            "doc_hash":     doc_hash,
-            "analysis_hash": analysis_hash,
-            "clause_types": clause_types,
-            "clause_count": clause_count,
-            "unknown_count": unknown_count,
-            "verified_at":  verified_at,
-            "system":       "LexiCache v0.1.0",
-        },
+        "pinataContent": content,
         "pinataMetadata": {
             "name": f"lexicache-{doc_hash[:16]}",
         },
@@ -346,6 +351,7 @@ def _send_sepolia_verification_tx(
     clause_types: List[str],
     geo_hash: Optional[str] = None,
     cid: str = "",
+    changed_fields: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     try:
         from web3 import Web3
@@ -380,8 +386,18 @@ def _send_sepolia_verification_tx(
         abi=LEXICACHE_VERIFIER_ABI,
     )
 
-    # Build analysis hash: deterministic digest of doc_hash + sorted clause types + geo
-    payload_seed = doc_hash + json.dumps(clause_types, sort_keys=True, ensure_ascii=False)
+    # Append changed fields as "CHANGE:X" entries so they appear on-chain
+    # alongside clause types without requiring a contract redeploy.
+    on_chain_types = list(clause_types)
+    if changed_fields:
+        for field in sorted(changed_fields):
+            entry = f"CHANGE:{field.upper()}"
+            if entry not in on_chain_types:
+                on_chain_types.append(entry)
+
+    # Build analysis hash: deterministic digest of doc_hash + sorted clause
+    # types + changed fields + geo so the hash covers all recorded changes.
+    payload_seed = doc_hash + json.dumps(on_chain_types, sort_keys=True, ensure_ascii=False)
     if geo_hash:
         payload_seed += geo_hash
     analysis_hash = hashlib.sha256(payload_seed.encode("utf-8")).hexdigest()
@@ -392,7 +408,7 @@ def _send_sepolia_verification_tx(
     # ABI-encode and send to the deployed LexiCacheVerifier contract.
     tx = contract.functions.storeVerification(
         doc_hash,
-        clause_types,
+        on_chain_types,
         timestamp,
         analysis_hash,
         cid,
@@ -561,9 +577,18 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
         durable_history = _get_effective_verification_history(doc_hash)
         seed_verification_baseline(doc_hash, user_id, durable_history)
         cached = get_cached_result(fingerprints)
-        if cached is not None and should_discard_on_leave(doc_hash):
+        # Near-duplicate hits come from a *different* verified document.
+        # The discard/rollback rules only apply to this user's own previous
+        # analysis, so skip them for near-duplicate hits so the template-
+        # variant path works correctly across users.
+        is_near_duplicate_hit = (
+            cached is not None
+            and cached.get("cache_match_type") == "near_duplicate"
+        )
+        if cached is not None and not is_near_duplicate_hit and should_discard_on_leave(doc_hash):
             if has_verification_history(doc_hash):
                 # Previously verified, but user taught new clauses and did not
+                # re-verify. Keep analysis + history, discard only pending teaches.
                 print(
                     f"[upload-file] Rolling back unverified teaches for doc:{doc_hash[:16]}... "
                     f"(keeping prior verified analysis)"
@@ -572,6 +597,7 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
                 # cached is still valid — it holds the last verified analysis
             else:
                 # Never verified at all: discard everything and force a fresh
+                # model run so unconfirmed data is never silently reused.
                 print(
                     f"[upload-file] Discarding unverified cache for doc:{doc_hash[:16]}... "
                     f"(no completed verification)"
@@ -599,16 +625,26 @@ async def upload_file(file: UploadFile = File(...), user_id: str = Form("anonymo
                 response_extracted_text = cached_extracted_text
                 changed_fields: List[str] = []
             else:
-                # Template variant: remap offsets for new text
+                # Template variant / near-duplicate: remap offsets for new text
+                # and store the remapped result under THIS document's own hash so
+                # that /verify can find it with a straight doc_hash lookup.
                 cache_match_type = "template_variant"
                 changed_fields = _detect_changed_fields(cached_extracted_text, text)
                 response_clauses = _remap_clause_offsets(cached_clauses, text, page_texts)
                 response_page_texts = page_texts
                 response_extracted_text = text
                 store_changed_fields_meta(doc_hash, changed_fields)
+                store_result(
+                    doc_hash=fingerprints,
+                    clauses=response_clauses,
+                    page_texts=page_texts,
+                    extracted_text=text,
+                    file_type=cached_file_type,
+                    raw_hash=raw_hash,
+                )
                 print(
                     f"[upload-file] Template variant detected for doc:{doc_hash[:16]}... "
-                    f"changed={changed_fields}"
+                    f"changed={changed_fields} — stored remapped result under own hash"
                 )
 
             unknown_count = len([
@@ -868,6 +904,9 @@ async def verify_document(request: VerifyRequest):
             for c in clauses
             if c.get("clause_type")
         })
+        # Fetch changed fields before building the blockchain payload so they
+        # are included in the on-chain record, IPFS pin, and history entry.
+        changed_fields = get_changed_fields_meta(request.doc_hash)
         analysis_hash = _sha256_json(cached)
         verified_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         print(f"Sending tx for doc {request.doc_hash}")
@@ -884,6 +923,7 @@ async def verify_document(request: VerifyRequest):
             clause_count=len(clauses),
             unknown_count=unknown_count,
             verified_at=verified_at_iso,
+            changed_fields=changed_fields or None,
         )
 
         # Step 2 — Write immutable proof to Sepolia with the CID embedded.
@@ -893,6 +933,7 @@ async def verify_document(request: VerifyRequest):
                 clause_types=clause_types,
                 geo_hash=geo_hash,
                 cid=cid,
+                changed_fields=changed_fields or None,
             )
         except Exception as tx_exc:
             error_text = str(tx_exc)
@@ -907,7 +948,7 @@ async def verify_document(request: VerifyRequest):
 
         existing_history = _get_effective_verification_history(request.doc_hash)
         attempt_count = len(existing_history) + 1
-        history_entry = {
+        history_entry: Dict[str, Any] = {
             "attempt": attempt_count,
             "date": verified_at_iso,
             "tx_hash": tx_result["tx_hash"],
@@ -916,14 +957,13 @@ async def verify_document(request: VerifyRequest):
             "geo_summary": geo_summary,
             "ipfs_cid": cid,
             "ipfs_url": f"https://gateway.pinata.cloud/ipfs/{cid}" if cid else None,
+            "changed_fields": changed_fields or [],
         }
         if not push_history_entry(request.doc_hash, history_entry):
             raise HTTPException(
                 status_code=500,
                 detail="Blockchain transaction succeeded but Redis history write failed",
             )
-
-        changed_fields = get_changed_fields_meta(request.doc_hash)
         attempt = create_verification_attempt(
             doc_hash=request.doc_hash,
             user_id=request.user_id,
